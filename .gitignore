@@ -1,0 +1,13 @@
+.gradle/
+.idea/
+**/build/
+local.properties
+.signing/
+*.apk
+*.apk.1
+outputs/
+research/
+tools/
+.DS_Store
+__pycache__/
+*.pyc
