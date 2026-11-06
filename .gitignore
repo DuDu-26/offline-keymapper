@@ -11,3 +11,15 @@ tools/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Local signing credentials and device/export data
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+*.hprof

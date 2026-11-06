@@ -32,6 +32,7 @@
 
 - `app/`：独立 Android Java / JNI 源码。
 - `scripts/release.sh`：编译三架构 native、Release、Lint、对齐、签名与校验。
+- `scripts/joystick-oracle/`：自行编写的原字节码计算对照工具；参考DEX需本地提供，不随仓库分发。
 - `scripts/test-engine.sh`：引擎状态机测试，需已启动并连接的 Android 模拟器/设备。
 - `app/src/androidTest/`：无第三方依赖的配置 API 测试，测试后恢复原配置。
 - `research/REA分析报告.md`：调研结论与 17 份 JSON 证据索引。
