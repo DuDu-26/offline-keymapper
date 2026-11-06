@@ -6,6 +6,7 @@ import android.view.InputEvent;
 import android.view.MotionEvent;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Random;
 
 /** A single coherent Android gesture stream, shared by every mapping. */
 final class TouchInjector implements TouchSink {
@@ -20,6 +21,7 @@ final class TouchInjector implements TouchSink {
     private final InjectionSink testSink;
     private long downTime;
     private long eventTime;
+    private final Random sizeRandom = new Random();
 
     TouchInjector() throws Exception {
         testSink=null;
@@ -37,12 +39,12 @@ final class TouchInjector implements TouchSink {
     }
     TouchInjector(InjectionSink sink) { inputManager=null;inject=null;testSink=sink; }
 
-    public boolean contains(int id) { return find(id) >= 0; }
+    public synchronized boolean contains(int id) { return find(id) >= 0; }
     private int find(int id) {
         for (int i = 0; i < points.size(); i++) if (points.get(i).logicalId == id) return i;
         return -1;
     }
-    public void down(int id, float x, float y) throws Exception {
+    public synchronized void down(int id, float x, float y) throws Exception {
         if (id < 0 || id > 31) throw new IllegalArgumentException("触点编号必须在 0..31");
         if (contains(id)) { move(id, x, y); return; }
         if (points.size() >= 10) throw new IllegalStateException("同时触点超过10个");
@@ -57,23 +59,23 @@ final class TouchInjector implements TouchSink {
                 : MotionEvent.ACTION_POINTER_DOWN | ((points.size() - 1) << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
         emit(action);
     }
-    public void move(int id, float x, float y) throws Exception {
+    public synchronized void move(int id, float x, float y) throws Exception {
         int i = find(id); if (i < 0) return;
-        Point p = points.get(i); if (p.x == x && p.y == y) return;
+        Point p = points.get(i);
         p.x = x; p.y = y; emit(MotionEvent.ACTION_MOVE);
     }
-    public void up(int id) throws Exception {
+    public synchronized void up(int id) throws Exception {
         int index = find(id); if (index < 0) return;
         int action = points.size() == 1 ? MotionEvent.ACTION_UP
                 : MotionEvent.ACTION_POINTER_UP | (index << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
         emit(action);
         points.remove(index);
     }
-    public void cancel() throws Exception {
+    public synchronized void cancel() throws Exception {
         try { if (!points.isEmpty()) emit(MotionEvent.ACTION_CANCEL); }
         finally { points.clear(); downTime = 0; }
     }
-    void injectEvent(InputEvent event) throws Exception {
+    synchronized void injectEvent(InputEvent event) throws Exception {
         Object result=testSink==null?inject.invoke(inputManager,event,0):testSink.inject(event);
         if(Boolean.FALSE.equals(result))throw new IllegalStateException("系统拒绝输入注入");
     }
@@ -86,7 +88,9 @@ final class TouchInjector implements TouchSink {
             properties[i].id = p.pointerId; properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
             coordinates[i] = new MotionEvent.PointerCoords();
             coordinates[i].x = p.x; coordinates[i].y = p.y;
-            coordinates[i].pressure = 1f; coordinates[i].size = 1f;
+            coordinates[i].pressure = 1f;
+            // The supplied service samples size for every active point on every event.
+            coordinates[i].size = sizeRandom.nextFloat()*0.030000001f+0.02f;
         }
         eventTime = Math.max(eventTime, SystemClock.uptimeMillis());
         MotionEvent event = MotionEvent.obtain(downTime, eventTime, action, points.size(),

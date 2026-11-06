@@ -72,6 +72,7 @@ public final class MappingCanvas extends View {
             }
             JSONObject joystick = profile.optJSONObject("joystick"), aim = profile.optJSONObject("aim");
             if (joystick != null && joystick.optBoolean("enabled")) for (String key : new String[]{"up", "down", "left", "right"}) used.add(joystick.optInt(key));
+            if (joystick != null && joystick.optBoolean("enabled") && joystick.optInt("radiusSwitchMode",0)!=0) used.add(joystick.optInt("radiusSwitchCode",-1));
             if (aim != null && aim.optBoolean("enabled")) used.add(aim.optInt("toggleCode", 59));
             used.add(66);
             int next = 1; while (ids.contains(next)) next++;
@@ -123,7 +124,7 @@ public final class MappingCanvas extends View {
     }
     private void drawArea(Canvas canvas, JSONObject entry, int id, String title, int color) {
         if (entry == null || !entry.optBoolean("enabled", false)) return;
-        float x = x(entry), y = y(entry), radius = (float) entry.optDouble("radius", .1) * Math.min(getWidth(), getHeight());
+        float x = x(entry), y = y(entry), radius = radius(entry);
         paint.setStyle(Paint.Style.FILL); paint.setColor(withAlpha(color, preview ? 15 : 25));
         canvas.drawCircle(x, y, radius, paint);
         paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth((selected == id ? 3 : 1.5f) * density);
@@ -177,6 +178,10 @@ public final class MappingCanvas extends View {
     }
     private float x(JSONObject entry) { return (float) entry.optDouble("x", .5) * getWidth(); }
     private float y(JSONObject entry) { return (float) entry.optDouble("y", .5) * getHeight(); }
+    private float radius(JSONObject entry) {
+        return entry==profile.optJSONObject("joystick")&&entry.has("radiusPixels")?entry.optInt("radiusPixels"):
+                (float)entry.optDouble("radius",.1)*Math.min(getWidth(),getHeight());
+    }
     private static int withAlpha(int color, int alpha) { return (color & 0xffffff) | (alpha << 24); }
     private int hit(float x, float y) {
         touchEnd = false;
@@ -198,7 +203,7 @@ public final class MappingCanvas extends View {
     private boolean areaHit(JSONObject entry, float tx, float ty) {
         return entry != null && entry.optBoolean("enabled", false)
             && Math.hypot(tx - x(entry), ty - y(entry)) < Math.max(30 * density,
-                entry.optDouble("radius", .1) * Math.min(getWidth(), getHeight()));
+                radius(entry));
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {

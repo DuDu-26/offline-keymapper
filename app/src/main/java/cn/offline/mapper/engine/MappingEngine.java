@@ -18,6 +18,7 @@ final class MappingEngine {
     private final HashMap<Integer, Set<Integer>> pressed = new HashMap<>();
     private int width=1920,height=1080;
     private JSONObject joystick = new JSONObject(), aim = new JSONObject();
+    private JoystickController joystickController;
     private boolean running, aimLocked;
     private float aimX,aimY;
     private long lastAim;
@@ -49,8 +50,24 @@ final class MappingEngine {
         }
         JSONObject nextJoy=profile.optJSONObject("joystick"), nextAim=profile.optJSONObject("aim");
         validateRegion(nextJoy); validateRegion(nextAim);
+        JoystickController.validateOptions(nextJoy);
+        if(nextJoy!=null && nextJoy.optBoolean("enabled",false)) {
+            HashSet<Integer> directionCodes=new HashSet<>();
+            for(String name:new String[]{"up","down","left","right"}) {
+                int code=nextJoy.optInt(name,name.equals("up")?17:name.equals("down")?31:name.equals("left")?30:32);
+                if(code<1||code>769||code==66||code==114||code==115||code==116||!directionCodes.add(code))
+                    throw new IllegalArgumentException("摇杆方向键无效或重复");
+            }
+            if(nextJoy.optInt("radiusSwitchMode",0)!=0 && !directionCodes.add(nextJoy.optInt("radiusSwitchCode")))
+                throw new IllegalArgumentException("半径切换键不能与方向键重复");
+            for(Binding binding:parsed)if(directionCodes.contains(binding.code))throw new IllegalArgumentException("摇杆按键与点位冲突");
+            if(nextAim!=null && nextAim.optBoolean("enabled",false) && directionCodes.contains(nextAim.optInt("toggleCode",59)))
+                throw new IllegalArgumentException("摇杆按键与视角切换键冲突");
+        }
         pause(); this.width=width; this.height=height; bindings.clear(); bindings.addAll(parsed);
         joystick=nextJoy==null?new JSONObject():nextJoy; aim=nextAim==null?new JSONObject():nextAim;
+        if(joystickController!=null)joystickController.close();
+        joystickController=joystick.optBoolean("enabled",false)?new JoystickController(touch,joystick,profile.optString("package",""),width,height):null;
     }
     private static void validateRegion(JSONObject value) {
         if(value==null)return;
@@ -72,7 +89,8 @@ final class MappingEngine {
     void pause() throws Exception {
         running=false; aimLocked=false; pressed.clear();
         for(Binding b:bindings) { b.due=0;b.began=0;b.repeating=false;b.swiping=false; }
-        touch.cancel();
+        try{if(joystickController!=null)joystickController.reset();}
+        finally{touch.cancel();}
     }
     void cancel() throws Exception {
         boolean wasRunning=running; pause(); running=wasRunning;
@@ -110,23 +128,19 @@ final class MappingEngine {
                 touch.up(b.id);touch.down(b.id,b.x,b.y);b.began=now;b.due=now+b.duration;b.swiping=true;
             }
         }
-        updateJoystick();
+        updateJoystick(code,after);
     }
     void wheel(int device,int value,long now) throws Exception {
         int code=value>0?768:769;
         // One deterministic action for each notch; overlapping taps retain a single pointer.
         for(int i=0;i<Math.min(Math.abs(value),20);i++){key(device,code,1,now);key(device,code,0,now);}
     }
-    private void updateJoystick() throws Exception {
-        if(!joystick.optBoolean("enabled",false))return;
-        int dx=(held(joystick.optInt("right",32))?1:0)-(held(joystick.optInt("left",30))?1:0);
-        int dy=(held(joystick.optInt("down",31))?1:0)-(held(joystick.optInt("up",17))?1:0);
-        if(dx==0&&dy==0){touch.up(30);return;}
-        float centerX=clampX((float)joystick.optDouble("x",.18)*width), centerY=clampY((float)joystick.optDouble("y",.75)*height);
-        float radius=(float)joystick.optDouble("radius",.075)*Math.min(width,height);
-        double length=Math.hypot(dx,dy);
-        if(!touch.contains(30))touch.down(30,centerX,centerY);
-        touch.move(30,clampX(centerX+(float)(dx/length)*radius),clampY(centerY+(float)(dy/length)*radius));
+    private void updateJoystick(int code,boolean down) throws Exception {
+        if(joystickController==null)return;
+        if(code==joystick.optInt("up",17)||code==joystick.optInt("down",31)||code==joystick.optInt("left",30)||code==joystick.optInt("right",32))
+            joystickController.direction(held(joystick.optInt("up",17)),held(joystick.optInt("down",31)),
+                    held(joystick.optInt("left",30)),held(joystick.optInt("right",32)));
+        if(joystick.optInt("radiusSwitchMode",0)!=0 && code==joystick.optInt("radiusSwitchCode",-1))joystickController.radiusKey(down);
     }
     void mouse(float dx,float dy,long now) throws Exception {
         if(!running||!aimLocked||(dx==0&&dy==0))return;
@@ -147,6 +161,7 @@ final class MappingEngine {
     }
     void tick(long now) throws Exception {
         if(!running)return;
+        if(joystickController!=null)joystickController.checkFailure();
         for(Binding b:bindings) {
             if(b.swiping) {
                 float progress=Math.min(1f,(float)(now-b.began)/b.duration);

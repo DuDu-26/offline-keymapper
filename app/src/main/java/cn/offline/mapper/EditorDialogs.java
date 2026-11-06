@@ -55,12 +55,42 @@ public final class EditorDialogs {
         EditText x = form.number("中心 X（屏幕宽度 %）", entry.optDouble("x", .18) * 100);
         EditText y = form.number("中心 Y（屏幕高度 %）", entry.optDouble("y", .75) * 100);
         EditText radius = form.number("半径（屏幕短边 %，1～45）", entry.optDouble("radius", .075) * 100);
+        CheckBox pixelRadius = form.check("用像素精确设置半径", entry.has("radiusPixels"));
+        EditText pixels = form.number("精确半径（像素，1～900；原版默认 90）", entry.optInt("radiusPixels",90));
+        Spinner trajectory = form.spinner("触摸轨迹", new String[]{"全摇感随机", "半摇感随机", "普通摇杆"});
+        trajectory.setSelection(entry.optInt("trajectoryMode",0));
+        Spinner variant = form.spinner("轨迹参数档", new String[]{"跟随模式和当前游戏", "原版基础参数", "原版增强参数", "原版轻量参数", "原版二阶段回调"});
+        variant.setSelection(entry.optInt("trajectoryVariant",-1)+1);
+        CheckBox customAngles = form.check("自定义终点偏角范围",entry.optBoolean("customAngles",false));
+        EditText angleMin = form.number("偏角下限（整数度，-180～180）",entry.optInt("angleMin",-12));
+        EditText angleMax = form.number("偏角上限（整数度，-180～180）",entry.optInt("angleMax",12));
+        form.note("关闭自定义时使用原版范围；开启后仅替换终点偏角，不改变曲线、半径、起点或持续扰动。两个端点都包含在内。普通摇杆不使用随机偏角。");
+        Spinner radiusSwitch = form.spinner("半径切换",new String[]{"不切换","长按切换","按下切换"});
+        radiusSwitch.setSelection(entry.optInt("radiusSwitchMode",0));
+        EditText radiusKey = form.key("半径切换键",entry.optInt("radiusSwitchCode",56));
+        EditText percent = form.number("切换半径（原半径 %，30～300）",entry.optInt("radiusSwitchPercent",100));
         EditText up = form.key("向上", entry.optInt("up", 17)), down = form.key("向下", entry.optInt("down", 31));
         EditText left = form.key("向左", entry.optInt("left", 30)), right = form.key("向右", entry.optInt("right", 32));
+        android.widget.Button details = new android.widget.Button(form.context);
+        details.setText("查看算法与原版参数");form.fields.addView(details);
+        TextView explanation = new TextView(form.context);explanation.setTextColor(MUTED);explanation.setTextSize(13);
+        explanation.setText("随机轨迹：按下时每轴整数偏移 -30～29 像素；终点偏角在所选整数范围内均匀抽取，半径倍率另行均匀抽取。\n\n"
+                +"基础：偏角 ±12°，半径 1～1.8 倍，终点每轴再偏移 -6～5 像素。\n增强：±15°，1～2.2 倍，-10～9 像素。\n轻量：±6°，1～1.4 倍，-3～2 像素。\n\n"
+                +"移动由五类随机曲线分支生成，第一阶段总睡眠 33～45 毫秒，基础点数 15～30。二阶段档会短暂停顿，再移动到接近原半径的位置。\n\n"
+                +"持续按住：基础和轻量档每 150～300 毫秒，在目标附近每轴 -5～5 像素重新采样；增强档为 120～260 毫秒、-12～12 像素。不是逐步累加的随机游走。\n\n"
+                +"转向保持同一触点，从实际当前位置开始；相反方向互相抵消；松开最后方向键时直接抬起。普通档按固定八方向移动，没有上述轨迹随机。\n\n"
+                +"触点大小字段每次事件另行在约 0.02～0.05 之间采样。这与角度、半径是独立的算法。轨迹对比一致也不代表游戏账号安全。");
+        explanation.setPadding(0,form.dp(8),0,form.dp(12));explanation.setVisibility(View.GONE);form.fields.addView(explanation);
+        details.setOnClickListener(v->{boolean show=explanation.getVisibility()!=View.VISIBLE;explanation.setVisibility(show?View.VISIBLE:View.GONE);details.setText(show?"收起算法说明":"查看算法与原版参数");});
         return form.show("方向摇杆设置", () -> {
             JSONObject copy = new JSONObject(entry.toString());
             copy.put("enabled", enabled.isChecked()).put("x", number(x, 0, 100) / 100).put("y", number(y, 0, 100) / 100)
                 .put("radius", number(radius, 1, 45) / 100).put("up", key(up)).put("down", key(down)).put("left", key(left)).put("right", key(right));
+            if(pixelRadius.isChecked())copy.put("radiusPixels",integer(pixels,1,900));else copy.remove("radiusPixels");
+            copy.put("trajectoryMode",trajectory.getSelectedItemPosition()).put("trajectoryVariant",variant.getSelectedItemPosition()-1)
+                .put("customAngles",customAngles.isChecked()).put("angleMin",integer(angleMin,-180,180)).put("angleMax",integer(angleMax,-180,180))
+                .put("radiusSwitchMode",radiusSwitch.getSelectedItemPosition()).put("radiusSwitchCode",key(radiusKey)).put("radiusSwitchPercent",integer(percent,30,300));
+            cn.offline.mapper.engine.JoystickController.validateOptions(copy);
             merge(entry, copy); changed.run();
         });
     }
@@ -101,7 +131,15 @@ public final class EditorDialogs {
         }
         return result;
     }
+    private static int integer(EditText field,int min,int max) {
+        double value=number(field,min,max);
+        if(value!=Math.rint(value)){field.setError("请输入整数");throw new IllegalArgumentException("请输入整数");}
+        return (int)value;
+    }
     private static void merge(JSONObject target, JSONObject source) throws Exception {
+        java.util.ArrayList<String> removed=new java.util.ArrayList<>();
+        Iterator<String> previous=target.keys();while(previous.hasNext()){String key=previous.next();if(!source.has(key))removed.add(key);}
+        for(String key:removed)target.remove(key);
         Iterator<String> keys = source.keys(); while (keys.hasNext()) { String key = keys.next(); target.put(key, source.get(key)); }
     }
     private static final class Form {
@@ -122,7 +160,7 @@ public final class EditorDialogs {
         void title(String name) { TextView label = new TextView(context); label.setText(name); label.setTextColor(TEXT); label.setTextSize(13); label.setPadding(0, dp(10), 0, dp(3)); fields.addView(label); }
         EditText number(String name, double value) {
             title(name); EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true);
-            input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
             input.setText(String.format(Locale.US, "%.3f", value).replaceAll("0+$", "").replaceAll("\\.$", ""));
             fields.addView(input, new LinearLayout.LayoutParams(-1, dp(48))); return input;
         }

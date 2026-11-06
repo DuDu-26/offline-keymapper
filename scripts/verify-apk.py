@@ -2,7 +2,7 @@
 """Verify the actual delivered APK; never infer success from build settings."""
 import hashlib,json,os,pathlib,re,subprocess,sys,zipfile
 root=pathlib.Path(__file__).resolve().parents[1]
-apk=root/'outputs/离线键鼠映射-v1.0.0-root.apk'
+apk=root/'outputs/离线键鼠映射-v1.1.0-root.apk'
 sdk=pathlib.Path(os.environ.get('ANDROID_SDK_ROOT','/opt/homebrew/share/android-commandlinetools'))
 bt=sdk/'build-tools/35.0.0'
 env=os.environ.copy();env.setdefault('JAVA_HOME','/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home')
@@ -31,7 +31,8 @@ with zipfile.ZipFile(apk) as z:
         libs.append({'abi':abi,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(),'loadAlignment':16384})
     dex=b''.join(z.read(n) for n in z.namelist() if re.fullmatch(r'classes\d*\.dex',n))
     assert b'EngineSelfTest' not in dex,'development tests should not be shipped'
-report={'artifact':apk.name,'package':'cn.offline.mapper','version':'1.0.0','minSdk':28,'targetSdk':35,'bytes':apk.stat().st_size,'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),'debuggable':False,'internetPermission':False,'signatureV2':True,'signatureV3':True,'signatureVerificationMinSdk':24,'zipalign16KB':True,'certificateSha256':re.search(r'certificate SHA-256 digest: (\w+)',signing).group(1),'nativeLibraries':libs,'physicalPhoneVerified':False,'completeOriginalReplica':False}
+assert "versionName='1.1.0'" in badging
+report={'artifact':apk.name,'package':'cn.offline.mapper','version':'1.1.0','minSdk':28,'targetSdk':35,'bytes':apk.stat().st_size,'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),'debuggable':False,'internetPermission':False,'signatureV2':True,'signatureV3':True,'signatureVerificationMinSdk':24,'zipalign16KB':True,'certificateSha256':re.search(r'certificate SHA-256 digest: (\w+)',signing).group(1),'nativeLibraries':libs,'physicalPhoneVerified':False,'completeOriginalReplica':False}
 (root/'outputs/交付校验.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
 (root/'outputs/签名校验.txt').write_text(signing)
 print(json.dumps(report,ensure_ascii=False,indent=2))

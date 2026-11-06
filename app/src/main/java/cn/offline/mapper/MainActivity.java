@@ -29,6 +29,7 @@ public class MainActivity extends Activity implements RootBridge.Listener {
     @Override protected void onDestroy(){bridge.removeListener(this);super.onDestroy();}
     @Override public void onConfigurationChanged(android.content.res.Configuration c){super.onConfigurationChanged(c);render();}
     private int dp(int n){return Math.round(getResources().getDisplayMetrics().density*n);}
+    private String version(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(android.content.pm.PackageManager.NameNotFoundException impossible){return "";}}
     private GradientDrawable bg(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     private TextView text(String s,int size,int color){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setPadding(0,dp(4),0,dp(4));return v;}
     private LinearLayout col(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
@@ -36,7 +37,7 @@ public class MainActivity extends Activity implements RootBridge.Listener {
     private void button(LinearLayout parent,String label,Runnable action,boolean primary){Button b=new Button(this);b.setText(label);b.setTextSize(14);b.setAllCaps(false);b.setTextColor(primary?0xff071106:Color.WHITE);b.setBackground(bg(primary?GREEN:0xff2d353f,12));b.setMinHeight(dp(46));b.setPadding(dp(12),dp(10),dp(12),dp(10));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(9);parent.addView(b,lp);b.setOnClickListener(v->action.run());}
     private void render(){
         status=null;devices=null;page=col();page.setBackgroundColor(BG);page.setPadding(dp(18),dp(12),dp(18),0);setContentView(page);
-        TextView title=text("离线键鼠映射",26,Color.WHITE);title.setTypeface(null,Typeface.BOLD);page.addView(title);page.addView(text("ROOT 本地版  /  1.0.0",12,GREEN));
+        TextView title=text("离线键鼠映射",26,Color.WHITE);title.setTypeface(null,Typeface.BOLD);page.addView(title);page.addView(text("ROOT 本地版  /  "+version(),12,GREEN));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));content=col();content.setPadding(0,dp(18),0,dp(18));scroll.addView(content);
         nav=new LinearLayout(this);nav.setGravity(Gravity.CENTER);page.addView(nav);String[] tabs={"游戏","配置","设置"};for(int i=0;i<3;i++){final int t=i;TextView v=text(tabs[i],15,i==tab?GREEN:MUTED);v.setGravity(Gravity.CENTER);v.setPadding(0,dp(18),0,dp(18));nav.addView(v,new LinearLayout.LayoutParams(0,-2,1));v.setOnClickListener(w->{tab=t;render();});}
         if(tab==0)home();else if(tab==1)profiles();else settings();refreshStatus();

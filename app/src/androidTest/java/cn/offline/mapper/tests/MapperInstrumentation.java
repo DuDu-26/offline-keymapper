@@ -117,6 +117,32 @@ public final class MapperInstrumentation extends Instrumentation {
         check("joystick_key_conflict_rejected", () -> {
             JSONObject p = fresh(); p.getJSONObject("joystick").put("up", 272); rejected(p);
         });
+        check("legacy_joystick_profile_remains_loadable", () -> {
+            JSONObject p=fresh(),j=p.getJSONObject("joystick");
+            for(String name:new String[]{"radiusPixels","trajectoryMode","trajectoryVariant","customAngles","angleMin","angleMax","radiusSwitchMode","radiusSwitchCode","radiusSwitchPercent"})j.remove(name);
+            reset();ProfileStore.save(target,p);JSONObject restored=ProfileStore.current(target);
+            require(!restored.getJSONObject("joystick").has("radiusPixels"),"旧比例布局不被悄悄替换为像素布局");
+            near(.075,restored.getJSONObject("joystick").getDouble("radius"));
+        });
+        check("joystick_custom_angle_roundtrip_and_invalid_ranges", () -> {
+            JSONObject p=fresh();p.getJSONObject("joystick").put("customAngles",true).put("angleMin",-180).put("angleMax",180);
+            reset();ProfileStore.save(target,p);equal(-180,ProfileStore.current(target).getJSONObject("joystick").getInt("angleMin"));
+            for(double bad:new double[]{-181,181,.5}){p=fresh();p.getJSONObject("joystick").put("angleMin",bad);rejected(p);}
+            p=fresh();p.getJSONObject("joystick").put("angleMin",5).put("angleMax",4);rejected(p);
+        });
+        check("joystick_radius_switch_conflicts_rejected", () -> {
+            for(int bad:new int[]{-1,17,272,59,66,114,115,116}) {
+                JSONObject p=fresh();p.getJSONObject("joystick").put("radiusSwitchMode",1).put("radiusSwitchCode",bad);rejected(p);
+            }
+            JSONObject p=fresh();p.getJSONObject("joystick").put("radiusSwitchMode",2).put("radiusSwitchCode",56);ProfileStore.validate(p);
+        });
+        check("joystick_radius_and_mode_limits", () -> {
+            for(double bad:new double[]{29,301,100.5}){JSONObject p=fresh();p.getJSONObject("joystick").put("radiusSwitchPercent",bad);rejected(p);}
+            for(int bad:new int[]{0,901}){JSONObject p=fresh();p.getJSONObject("joystick").put("radiusPixels",bad);rejected(p);}
+            JSONObject p=fresh();p.getJSONObject("joystick").put("trajectoryMode",3);rejected(p);
+            p=fresh();p.getJSONObject("joystick").put("trajectoryVariant",4);rejected(p);
+            p=fresh();p.getJSONObject("joystick").put("radiusSwitchPercent",300).put("radiusPixels",900);ProfileStore.validate(p);
+        });
         check("aim_key_conflict_rejected", () -> {
             JSONObject p = fresh(); p.getJSONObject("aim").put("toggleCode", 272); rejected(p);
         });

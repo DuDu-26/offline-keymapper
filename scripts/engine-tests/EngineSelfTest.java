@@ -8,14 +8,22 @@ import org.json.JSONObject;
 /** Explicit app_process test entry. Uses an in-memory sink and never injects real input. */
 public final class EngineSelfTest {
     private static final class Event {
-        int action,index,count;long down,time;int[] ids;float[] x,y;
+        int action,index,count;long down,time;int[] ids;float[] x,y,size;
         Event(MotionEvent e) {
             action=e.getActionMasked();index=e.getActionIndex();count=e.getPointerCount();
-            down=e.getDownTime();time=e.getEventTime();ids=new int[count];x=new float[count];y=new float[count];
-            for(int i=0;i<count;i++){ids[i]=e.getPointerId(i);x[i]=e.getX(i);y[i]=e.getY(i);}
+            down=e.getDownTime();time=e.getEventTime();ids=new int[count];x=new float[count];y=new float[count];size=new float[count];
+            for(int i=0;i<count;i++){ids[i]=e.getPointerId(i);x[i]=e.getX(i);y[i]=e.getY(i);size[i]=e.getSize(i);}
         }
     }
     private static void check(boolean result,String message) {if(!result)throw new AssertionError(message);}
+    private static void awaitPoint(TouchInjector touch,ArrayList<Event> events,int x,int y) throws Exception {
+        long until=android.os.SystemClock.uptimeMillis()+2000;
+        while(android.os.SystemClock.uptimeMillis()<until){
+            synchronized(touch){if(!events.isEmpty()){Event e=events.get(events.size()-1);if(e.x[0]==x&&e.y[0]==y)return;}}
+            Thread.sleep(1);
+        }
+        throw new AssertionError("joystick worker did not reach expected point");
+    }
     private static JSONObject binding(int id,int code,String type) throws Exception {
         return new JSONObject().put("id",id).put("code",code).put("type",type).put("x",.4).put("y",.5)
                 .put("endX",.8).put("endY",.6).put("duration",100).put("interval",100);
@@ -25,7 +33,7 @@ public final class EngineSelfTest {
         TouchInjector touch=new TouchInjector(event->{events.add(new Event((MotionEvent)event));return true;});
         MappingEngine engine=new MappingEngine(touch);
         JSONObject profile=new JSONObject().put("bindings",new JSONArray().put(binding(1,57,"hold")).put(binding(2,28,"hold")))
-                .put("joystick",new JSONObject().put("enabled",true).put("x",.2).put("y",.7).put("radius",.1))
+                .put("joystick",new JSONObject().put("enabled",true).put("x",.2).put("y",.7).put("radius",.1).put("trajectoryMode",2))
                 .put("aim",new JSONObject().put("enabled",true).put("x",.6).put("y",.5).put("radius",.2));
         engine.configure(profile,1000,600);engine.start();
         engine.key(1,57,1,1000);engine.key(1,28,1,1001);engine.key(1,57,0,1002);engine.key(1,28,0,1003);
@@ -37,10 +45,11 @@ public final class EngineSelfTest {
         for(Event e:events){check(e.down==down,"gesture downTime stable");check(e.time>=prior,"monotonic eventTime");prior=e.time;}
         System.out.println("PASS multi-pointer actions, index, stable IDs and timestamps");
         events.clear();engine.key(1,17,1,1100);engine.key(1,32,1,1101);
+        awaitPoint(touch,events,242,378);
         Event diagonal=events.get(events.size()-1);
-        check(Math.abs(Math.hypot(diagonal.x[0]-200,diagonal.y[0]-420)-60)<.01,"diagonal radius normalization");
+        check(diagonal.x[0]==242&&diagonal.y[0]==378,"original diagonal integer truncation");
         engine.key(1,17,0,1102);engine.key(1,32,0,1103);check(!touch.contains(30),"joystick release");
-        System.out.println("PASS joystick diagonal normalization and release");
+        System.out.println("PASS original joystick diagonal integer truncation and release");
         profile.put("bindings",new JSONArray().put(binding(1,57,"repeat")).put(binding(2,28,"swipe")).put(binding(3,46,"tap")));
         engine.configure(profile,1000,600);engine.start();events.clear();
         engine.key(1,57,1,2000);engine.tick(2050);check(!touch.contains(1),"repeat release half interval");
@@ -86,6 +95,46 @@ public final class EngineSelfTest {
         check(events.get(4).ids[1]==retained,"surviving high logical ID retains compact physical ID");
         for(Event e:events)for(int id:e.ids)check(id>=0&&id<10,"every framework pointer ID stays in0..9");
         touch.cancel();System.out.println("PASS compact physical IDs for logical20/30/31, stable reuse and release");
+        JSONObject randomProfile=new JSONObject().put("bindings",new JSONArray().put(binding(1,57,"hold")))
+                .put("joystick",new JSONObject().put("enabled",true).put("x",.3).put("y",.5).put("radius",.1)
+                        .put("radiusPixels",90).put("trajectoryMode",0).put("customAngles",true).put("angleMin",-2).put("angleMax",3));
+        engine.configure(randomProfile,1920,1080);engine.start();events.clear();
+        engine.key(1,17,1,6000);engine.key(1,57,1,6001);Thread.sleep(450);
+        synchronized(touch){
+            check(events.size()>10,"random joystick emits the real multi-point path");
+            check(touch.contains(30)&&touch.contains(1),"random worker shares a coherent multi-touch stream");
+            for(Event e:events)for(float value:e.size)check(value>=.02f&&value<=.05f,"original touch size field range");
+        }
+        engine.key(1,66,1,6500);int stopped;
+        synchronized(touch){stopped=events.size();check(!touch.contains(30)&&!touch.contains(1),"F8 releases random path and other touch");}
+        Thread.sleep(350);synchronized(touch){check(events.size()==stopped,"no stale worker emits after emergency stop");}
+        engine.start();engine.key(1,32,1,7000);Thread.sleep(5);
+        engine.configure(new JSONObject().put("bindings",new JSONArray()),1920,1080);
+        synchronized(touch){stopped=events.size();}
+        Thread.sleep(100);synchronized(touch){check(events.size()==stopped,"reconfiguration shuts down the previous worker");}
+        System.out.println("PASS random trajectory concurrency, original size, F8 cancellation and reconfiguration");
+        java.util.concurrent.CountDownLatch entered=new java.util.concurrent.CountDownLatch(1),releaseFailure=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Exception> observedFailure=new java.util.concurrent.atomic.AtomicReference<>();
+        TouchSink failing=new TouchSink(){
+            boolean active;
+            public boolean contains(int id){return active;}
+            public void down(int id,float x,float y){active=true;}
+            public void move(int id,float x,float y)throws Exception{entered.countDown();releaseFailure.await();throw new Exception("intentional injection failure");}
+            public void up(int id){active=false;}
+            public void cancel(){active=false;}
+        };
+        JoystickController failedController=new JoystickController(failing,new JSONObject().put("trajectoryMode",2).put("radiusPixels",90),"",1920,1080);
+        failedController.direction(true,false,false,false);
+        check(entered.await(2,java.util.concurrent.TimeUnit.SECONDS),"failure fixture enters old MOVE");
+        Thread turning=new Thread(()->{try{failedController.direction(false,false,false,true);}catch(Exception error){observedFailure.set(error);}},"test-turn-during-failure");
+        turning.start();long waitUntil=android.os.SystemClock.uptimeMillis()+2000;
+        while(turning.getState()!=Thread.State.BLOCKED&&android.os.SystemClock.uptimeMillis()<waitUntil)Thread.sleep(1);
+        check(turning.getState()==Thread.State.BLOCKED,"new direction waits for current MOVE lock");
+        releaseFailure.countDown();turning.join(2000);
+        check(!turning.isAlive()&&observedFailure.get()!=null,"old injection failure propagates during replacement");
+        failedController.close();
+        check(!failing.contains(30),"failed worker can still release its touch");
+        System.out.println("PASS injection-failure race across rapid direction replacement");
         System.out.println("ALL ENGINE SELF TESTS PASSED");
     }
 }
