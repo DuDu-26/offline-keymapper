@@ -3,6 +3,7 @@ package cn.offline.mapper.engine;
 import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
+import android.net.LocalSocketAddress;
 import android.os.Process;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -27,7 +28,7 @@ public final class RootDaemon {
     private MouseCursor cursor;
     private long nextCursor;
     private BufferedWriter output;
-    private LocalSocket client;
+    private volatile LocalSocket client;
     private LocalServerSocket server;
     private long eventCount;
     private int lastCode=-1;
@@ -36,6 +37,7 @@ public final class RootDaemon {
     private final HashMap<Integer,Integer> systemKeyRepeats=new HashMap<>();
 
     public static void main(String[] args) {
+        startup("进入引擎 uid="+Process.myUid()+" SDK="+android.os.Build.VERSION.SDK_INT);
         if(args.length!=4){System.err.println("Usage: RootDaemon socket allowedUid nativeLibrary token");return;}
         if(Process.myUid()!=0){System.err.println("RootDaemon requires uid 0");return;}
         RootDaemon daemon=new RootDaemon();
@@ -43,16 +45,27 @@ public final class RootDaemon {
             int allowedUid=Integer.parseInt(args[1]);
             if(allowedUid<10000 || args[0].length()<8 || args[3].length()<24)
                 throw new IllegalArgumentException("Invalid daemon credentials");
+            startup("正在加载输入库");
             System.load(args[2]);
+            startup("输入库已加载");
             Runtime.getRuntime().addShutdownHook(new Thread(daemon::shutdown,"mapper-cleanup"));
             daemon.serve(args[0],allowedUid,args[3]);
-        } catch(Throwable e){System.err.println("RootDaemon: "+e);}
+        } catch(Throwable e){System.err.println("RootDaemon: "+e);e.printStackTrace(System.err);System.err.flush();}
         finally {daemon.shutdown();}
     }
+    private static void startup(String stage){System.err.println("MapperStartup: "+stage);System.err.flush();}
 
     private void serve(String socketName,int allowedUid,String token) throws Exception {
-        injector=new TouchInjector();engine=new MappingEngine(injector);cursor=new MouseCursor(injector);
-        server=new LocalServerSocket(socketName);
+        startup("正在连接系统输入接口");
+        injector=new TouchInjector();
+        startup("系统输入接口已连接");
+        engine=new MappingEngine(injector);cursor=new MouseCursor(injector);
+        boolean reverse=socketName.startsWith("reverse:");
+        if(!reverse){
+            startup("正在建立本地服务端点");
+            server=new LocalServerSocket(socketName);
+            startup("本地服务端点已建立，等待应用连接");
+        }
         final long deadline=SystemClock.uptimeMillis()+20000;
         Thread watchdog=new Thread(()->{
             while(alive && client==null && SystemClock.uptimeMillis()<deadline) {
@@ -60,21 +73,36 @@ public final class RootDaemon {
             }
             if(alive && client==null)shutdown();
         },"mapper-connect-timeout");watchdog.setDaemon(true);watchdog.start();
+        if(reverse) {
+            startup("正在回连应用端点");
+            LocalSocket candidate=new LocalSocket();
+            try {
+                candidate.connect(new LocalSocketAddress(socketName.substring("reverse:".length()),LocalSocketAddress.Namespace.ABSTRACT));
+                if(!serveClient(candidate,allowedUid,token))throw new SecurityException("应用回连接口未通过验证");
+            } finally {try{candidate.close();}catch(Exception ignored){}}
+            return;
+        }
         while(alive) {
             LocalSocket candidate=server.accept();
+            startup("收到应用连接");
+            if(serveClient(candidate,allowedUid,token))return;
+        }
+    }
+    private boolean serveClient(LocalSocket candidate,int allowedUid,String token) throws Exception {
             Credentials peer=candidate.getPeerCredentials();
-            if(peer.getUid()!=allowedUid && peer.getUid()!=0){System.err.println("Denied peer uid "+peer.getUid());candidate.close();continue;}
+            if(peer.getUid()!=allowedUid && (server==null || peer.getUid()!=0)){System.err.println("Denied peer uid "+peer.getUid());candidate.close();return false;}
             candidate.setSoTimeout(5000);
             BufferedReader reader=new BufferedReader(new InputStreamReader(candidate.getInputStream(),StandardCharsets.UTF_8));
             try {
-                String line=readLine(reader);if(line==null){candidate.close();continue;}
+                String line=readLine(reader);if(line==null){candidate.close();return false;}
                 JSONObject auth=new JSONObject(line);
                 if(!"auth".equals(auth.optString("cmd")) || !MessageDigest.isEqual(
                         token.getBytes(StandardCharsets.UTF_8),auth.optString("token").getBytes(StandardCharsets.UTF_8))) {
-                    System.err.println("Denied authentication");candidate.close();continue;
+                    System.err.println("Denied authentication");candidate.close();return false;
                 }
-            } catch(Exception e){System.err.println("Authentication failed: "+message(e));candidate.close();continue;}
+            } catch(Exception e){System.err.println("Authentication failed: "+message(e));candidate.close();return false;}
             candidate.setSoTimeout(0);client=candidate;
+            startup("本地认证通过");
             output=new BufferedWriter(new OutputStreamWriter(client.getOutputStream(),StandardCharsets.UTF_8));
             send(new JSONObject().put("type","ready").put("uid",Process.myUid())
                     .put("devices",new JSONArray(NativeInput.devices())).put("injection",true));
@@ -86,8 +114,7 @@ public final class RootDaemon {
                     catch(Exception e){error(message(e));}
                 }
             } finally {shutdown();worker.join(1000);}
-            return;
-        }
+            return true;
     }
     private static String readLine(BufferedReader reader) throws Exception {
         StringBuilder line=new StringBuilder();int c;

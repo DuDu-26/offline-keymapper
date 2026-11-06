@@ -3,9 +3,14 @@ package cn.offline.mapper;
 import android.content.Context;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
+import android.net.LocalServerSocket;
+import android.system.Os;
+import android.system.OsConstants;
+import android.system.StructPollfd;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 import org.json.*;
 import java.io.*;
@@ -26,6 +31,7 @@ public final class RootBridge {
     private volatile String state="尚未激活 Root 服务";
     private volatile JSONObject detail=new JSONObject();
     private LocalSocket socket;
+    private LocalServerSocket pendingServer;
     private BufferedWriter writer;
     private java.lang.Process child;
     private volatile int generation;
@@ -57,16 +63,24 @@ public final class RootBridge {
             String apk=context.getApplicationInfo().sourceDir;
             String lib=context.getApplicationInfo().nativeLibraryDir+"/libmapper_input.so";
             if(!new File(lib).isFile())throw new IOException("缺少当前架构的输入引擎: "+lib);
-            String command="CLASSPATH="+quote(apk)+" /system/bin/app_process /system/bin cn.offline.mapper.engine.RootDaemon "+quote(name)+" "+Process.myUid()+" "+quote(lib)+" "+quote(token);
+            LocalServerSocket listener=new LocalServerSocket(name);
+            synchronized(this){if(ticket!=generation){listener.close();return;}pendingServer=listener;}
+            String command="CLASSPATH="+quote(apk)+" /system/bin/app_process /system/bin --nice-name=offline.mapper.root cn.offline.mapper.engine.RootDaemon "+quote("reverse:"+name)+" "+Process.myUid()+" "+quote(lib)+" "+quote(token);
             java.lang.Process process=new ProcessBuilder("su","-c",command).redirectErrorStream(true).start();
             synchronized(this){if(ticket!=generation){process.destroy();return;}child=process;}
             Thread drain=new Thread(()->{try(BufferedReader r=new BufferedReader(new InputStreamReader(process.getInputStream(),StandardCharsets.UTF_8))){String line;while((line=r.readLine())!=null)log(line);}catch(IOException ignored){}},"root-log");drain.setDaemon(true);drain.start();
-            long deadline=System.currentTimeMillis()+45000;LocalSocket candidate=null;
-            while(ticket==generation&&System.currentTimeMillis()<deadline){
-                if(!process.isAlive())throw new IOException("Root服务启动失败（请查看诊断日志和SU授权）");
-                try{candidate=new LocalSocket();candidate.connect(new LocalSocketAddress(name,LocalSocketAddress.Namespace.ABSTRACT));break;}catch(IOException e){if(candidate!=null)candidate.close();candidate=null;Thread.sleep(250);}
+            long deadline=SystemClock.elapsedRealtime()+45000;LocalSocket candidate=null;
+            StructPollfd waiting=new StructPollfd();waiting.fd=listener.getFileDescriptor();waiting.events=(short)OsConstants.POLLIN;
+            while(ticket==generation&&SystemClock.elapsedRealtime()<deadline){
+                if(!process.isAlive())throw new IOException("Root服务启动进程已退出（退出码 "+process.exitValue()+"），请查看诊断日志");
+                if(Os.poll(new StructPollfd[]{waiting},250)<=0)continue;
+                if((waiting.revents&OsConstants.POLLIN)==0)throw new IOException("本地接入端点已关闭");
+                candidate=listener.accept();
+                if(candidate.getPeerCredentials().getUid()==0)break;
+                log("拒绝非Root服务连接");candidate.close();candidate=null;
             }
-            if(candidate==null)throw new IOException("Root授权或服务启动超时，请允许SU后重试");
+            if(candidate==null)throw new IOException("等待Root服务回连超时，请查看启动阶段日志");
+            synchronized(this){if(pendingServer==listener)pendingServer=null;listener.close();}
             synchronized(this){if(ticket!=generation){candidate.close();return;}socket=candidate;writer=new BufferedWriter(new OutputStreamWriter(candidate.getOutputStream(),StandardCharsets.UTF_8));}
             candidate.setSoTimeout(10000);
             BufferedReader reader=new BufferedReader(new InputStreamReader(candidate.getInputStream(),StandardCharsets.UTF_8));
@@ -102,6 +116,7 @@ public final class RootBridge {
         state="服务已停止 · 键鼠已释放";changed();
     }
     private synchronized void cleanup(){
+        try{if(pendingServer!=null)pendingServer.close();}catch(IOException ignored){}pendingServer=null;
         try{if(socket!=null)socket.close();}catch(IOException ignored){}socket=null;writer=null;
         if(child!=null){child.destroy();child=null;}connected=false;running=false;
     }

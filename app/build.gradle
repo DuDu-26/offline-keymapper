@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'cn.offline.mapper'
     compileSdk 35
-    defaultConfig { applicationId 'cn.offline.mapper'; minSdk 28; targetSdk 35; versionCode 2; versionName '1.1.0'; testInstrumentationRunner 'cn.offline.mapper.tests.MapperInstrumentation' }
+    defaultConfig { applicationId 'cn.offline.mapper'; minSdk 28; targetSdk 35; versionCode 3; versionName '1.1.1'; testInstrumentationRunner 'cn.offline.mapper.tests.MapperInstrumentation' }
     buildTypes { release { minifyEnabled false } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_11; targetCompatibility JavaVersion.VERSION_11 }
     packaging { jniLibs { useLegacyPackaging = true } }

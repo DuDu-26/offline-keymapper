@@ -12,9 +12,9 @@ mkdir -p outputs
 "$TOOLS/apksigner" sign --ks .signing/offline-mapper.jks --ks-key-alias offline-mapper \
     --ks-pass file:.signing/password \
     --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false \
-    --out 'outputs/离线键鼠映射-v1.1.0-root.apk' outputs/offline-mapper-aligned.apk
-"$TOOLS/zipalign" -c -P 16 -v 4 'outputs/离线键鼠映射-v1.1.0-root.apk'
-"$TOOLS/apksigner" verify --min-sdk-version 24 --verbose --print-certs 'outputs/离线键鼠映射-v1.1.0-root.apk'
+    --out 'outputs/离线键鼠映射-v1.1.1-root.apk' outputs/offline-mapper-aligned.apk
+"$TOOLS/zipalign" -c -P 16 -v 4 'outputs/离线键鼠映射-v1.1.1-root.apk'
+"$TOOLS/apksigner" verify --min-sdk-version 24 --verbose --print-certs 'outputs/离线键鼠映射-v1.1.1-root.apk'
 
-rm -f outputs/offline-mapper-aligned.apk 'outputs/离线键鼠映射-v1.1.0-root.apk.idsig'
+rm -f outputs/offline-mapper-aligned.apk 'outputs/离线键鼠映射-v1.1.1-root.apk.idsig'
 python3 scripts/verify-apk.py
