@@ -8,9 +8,9 @@ import org.json.JSONObject;
 /** Explicit app_process test entry. Uses an in-memory sink and never injects real input. */
 public final class EngineSelfTest {
     private static final class Event {
-        int action,index,count;long down,time;int[] ids;float[] x,y,size;
+        int action,index,count,source;long down,time;int[] ids;float[] x,y,size;
         Event(MotionEvent e) {
-            action=e.getActionMasked();index=e.getActionIndex();count=e.getPointerCount();
+            action=e.getActionMasked();index=e.getActionIndex();count=e.getPointerCount();source=e.getSource();
             down=e.getDownTime();time=e.getEventTime();ids=new int[count];x=new float[count];y=new float[count];size=new float[count];
             for(int i=0;i<count;i++){ids[i]=e.getPointerId(i);x[i]=e.getX(i);y[i]=e.getY(i);size[i]=e.getSize(i);}
         }
@@ -29,6 +29,18 @@ public final class EngineSelfTest {
                 .put("endX",.8).put("endY",.6).put("duration",100).put("interval",100);
     }
     public static void main(String[] ignored) throws Exception {
+        ArrayList<float[]> batches=new ArrayList<>();
+        MouseMotionBatch motion=new MouseMotionBatch((x,y,time)->batches.add(new float[]{x,y}));
+        for(int i=0;i<10000;i++){motion.relative(1,0,1,i);motion.relative(1,1,-2,i);}
+        check(batches.isEmpty(),"high-rate movement waits for batch boundary");
+        motion.flush(10000);
+        check(batches.size()==1&&batches.get(0)[0]==10000&&batches.get(0)[1]==-20000,"all relative deltas retained in a single injection");
+        motion.relative(1,0,7,10001);motion.flush(10001); // Before a mouse button.
+        motion.relative(1,0,9,10002);motion.relative(2,1,11,10003);motion.flush(10003);
+        check(batches.size()==4&&batches.get(1)[0]==7&&batches.get(2)[0]==9&&batches.get(3)[1]==11,"button and device boundaries retain order");
+        motion.relative(1,0,99,10004);motion.clear();motion.flush(10004);
+        check(batches.size()==4,"fault discards unsent movement");
+        System.out.println("PASS high-rate mouse batching, preserved deltas and button/device boundaries");
         ArrayList<Event> events=new ArrayList<>();
         TouchInjector touch=new TouchInjector(event->{events.add(new Event((MotionEvent)event));return true;});
         MappingEngine engine=new MappingEngine(touch);
@@ -84,12 +96,22 @@ public final class EngineSelfTest {
         engine.pause();events.clear();
         MouseCursor cursor=new MouseCursor(touch);cursor.configure(1000,600);cursor.move(10000,-10000);
         check(cursor.x()==999&&cursor.y()==0,"cursor clamped");
-        check(events.get(0).action==MotionEvent.ACTION_HOVER_MOVE,"cursor hover");
-        cursor.key(273,1);cursor.key(273,0);cursor.scroll(1);
-        check(events.get(1).action==MotionEvent.ACTION_DOWN&&events.get(2).action==MotionEvent.ACTION_BUTTON_PRESS,"mouse button press sequence");
-        check(events.get(3).action==MotionEvent.ACTION_BUTTON_RELEASE&&events.get(4).action==MotionEvent.ACTION_UP,"mouse button release sequence");
-        check(events.get(5).action==MotionEvent.ACTION_SCROLL,"mouse scroll");
-        System.out.println("PASS screen edges, idle0, high sensitivity, cursor hover/buttons/scroll");
+        check(events.isEmpty(),"free pointer motion does not inject system mouse/hover");
+        cursor.key(273,1);cursor.key(273,0);
+        check(events.isEmpty(),"unmapped right button does not synthesize system mouse events");
+        cursor.key(272,1);cursor.move(-10,10);cursor.key(272,0);
+        check(events.size()==3&&events.get(0).action==MotionEvent.ACTION_DOWN&&events.get(1).action==MotionEvent.ACTION_MOVE&&events.get(2).action==MotionEvent.ACTION_UP,"pointer click and drag use a touch gesture");
+        check(events.get(0).x[0]==995&&events.get(0).y[0]==0,"recovered four-pixel hotspot clamps at zero");
+        for(Event event:events)check(event.source==android.view.InputDevice.SOURCE_TOUCHSCREEN,"pointer emits only touchscreen source");
+        events.clear();touch.down(1,100,100);cursor.key(272,1);cursor.cancel();
+        check(touch.contains(1)&&!touch.contains(29),"cursor cancellation preserves other mapped fingers");
+        touch.cancel();
+        engine.start();cursor.key(272,1);engine.key(1,66,1,15001);
+        check(!touch.contains(29),"F8 cancels the active free-pointer touch");
+        cursor.cancel();engine.start();cursor.key(272,1);
+        check(touch.contains(29),"left click can restart after emergency touch cancellation");
+        cursor.cancel();engine.pause();
+        System.out.println("PASS screen edges, idle0, sensitivity, drawn pointer and touch click/drag");
         events.clear();touch.down(20,100,100);touch.down(30,200,200);touch.down(31,300,300);
         int retained=events.get(2).ids[2];touch.up(30);touch.down(19,400,400);
         check(events.get(4).ids[1]==retained,"surviving high logical ID retains compact physical ID");

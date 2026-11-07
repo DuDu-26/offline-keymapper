@@ -12,20 +12,34 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Choreographer;
+import android.view.WindowManager;
 import org.json.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class RootBridge {
-    public interface Listener {void onChanged();}
+    public interface Listener {
+        void onChanged();
+        default void onCursorChanged() { }
+    }
     private static RootBridge instance;
     public static synchronized RootBridge get(Context c){if(instance==null)instance=new RootBridge(c.getApplicationContext());return instance;}
     private final Context context;
+    private final InputDiagnosticsStore inputDiagnostics;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService work=Executors.newSingleThreadExecutor();
     private final Set<Listener> listeners=new CopyOnWriteArraySet<>();
+    private final AtomicBoolean cursorFramePending=new AtomicBoolean();
+    private final Choreographer.FrameCallback cursorFrame=frameTimeNanos->{
+        cursorFramePending.set(false);
+        // Read live state in listeners, rather than replaying a position captured
+        // before a pause/stop. The callback and listeners run on the main thread.
+        for(Listener listener:listeners)listener.onCursorChanged();
+    };
     private volatile boolean connected,running,activating,aimLocked,cursorVisible;
     private volatile float cursorX,cursorY;
     private volatile String state="尚未激活 Root 服务";
@@ -36,7 +50,7 @@ public final class RootBridge {
     private java.lang.Process child;
     private volatile int generation;
     private final StringBuilder logs=new StringBuilder();
-    private RootBridge(Context c){context=c;}
+    private RootBridge(Context c){context=c;inputDiagnostics=new InputDiagnosticsStore(c);}
     public boolean connected(){return connected;}
     public boolean running(){return running;}
     public boolean activating(){return activating;}
@@ -46,10 +60,14 @@ public final class RootBridge {
     public boolean cursorVisible(){return running&&!aimLocked&&cursorVisible;}
     public String status(){return state;}
     public JSONObject detail(){return detail;}
-    public synchronized String diagnostics(){return state+"\n"+detail+"\n"+logs;}
+    public synchronized String diagnostics(){return state+"\n"+detail+"\n\n"+inputDiagnostics.historyText()+"\n\n"+logs;}
     public void addListener(Listener l){listeners.add(l);}
     public void removeListener(Listener l){listeners.remove(l);}
     private void changed(){main.post(()->{for(Listener l:listeners)l.onChanged();});}
+    private void cursorChanged(){
+        if(cursorFramePending.compareAndSet(false,true))
+            main.post(()->Choreographer.getInstance().postFrameCallback(cursorFrame));
+    }
     private synchronized void log(String s){logs.append(s).append('\n');if(logs.length()>12000)logs.delete(0,logs.length()-12000);Log.i("OfflineMapper",s);}
     private void fail(String s){state=s;running=false;changed();log(s);}
     public synchronized void activate(){
@@ -87,7 +105,7 @@ public final class RootBridge {
             writeNow(new JSONObject().put("cmd","auth").put("token",token));
             String first=reader.readLine();if(first==null)throw new IOException("Root服务没有返回握手结果");
             JSONObject hello=new JSONObject(first);if(!"ready".equals(hello.optString("type"))||hello.optInt("uid",-1)!=0||!hello.optBoolean("injection"))throw new IOException("Root引擎未就绪: "+hello.optString("message",first));
-            synchronized(this){if(ticket!=generation){candidate.close();return;}candidate.setSoTimeout(0);connected=true;activating=false;detail=hello;state="Root 已激活 · 映射未启动";}changed();
+            synchronized(this){if(ticket!=generation){candidate.close();return;}candidate.setSoTimeout(0);connected=true;activating=false;detail=hello;inputDiagnostics.update(hello);state="Root 已激活 · 映射未启动";}changed();
             final LocalSocket live=candidate;
             Thread pump=new Thread(()->readMessages(reader,live,ticket),"root-events");pump.setDaemon(true);pump.start();
         }catch(Exception e){synchronized(this){if(ticket==generation){cleanup();activating=false;fail(e.getMessage()==null?e.toString():e.getMessage());}}}
@@ -97,16 +115,30 @@ public final class RootBridge {
         try{String line;while(ticket==generation&&(line=reader.readLine())!=null){
             if(line.length()>65536)throw new IOException("服务消息过长");JSONObject m=new JSONObject(line);String type=m.optString("type");
             synchronized(this){if(ticket!=generation)return;
-            if(type.equals("cursor")){cursorX=(float)m.optDouble("x");cursorY=(float)m.optDouble("y");cursorVisible=m.optBoolean("visible",true);changed();}
+            if(m.has("inputDiagnostics"))inputDiagnostics.update(m);
+            if(type.equals("cursor")){cursorX=(float)m.optDouble("x");cursorY=(float)m.optDouble("y");cursorVisible=m.optBoolean("visible",true);cursorChanged();}
             else if(type.equals("status")||type.equals("ready")){detail=m;cursorX=(float)m.optDouble("cursorX",cursorX);cursorY=(float)m.optDouble("cursorY",cursorY);cursorVisible=m.optBoolean("running",false)&&!m.optBoolean("aimLocked",false);running=m.optBoolean("running",running);aimLocked=m.optBoolean("aimLocked",false);String error=m.optString("error","");state=error.isEmpty()?(running?(aimLocked?"映射运行中 · 视角锁定":"映射运行中 · 自由鼠标模式"):"Root 已激活 · 映射已暂停"):"服务错误："+error;changed();}
-            else if(type.equals("error")){fail("服务错误："+m.optString("message",m.toString()));}
+            else if(type.equals("error")){
+                if(m.has("inputDiagnostics") && !"config".equals(m.optString("operation")))inputDiagnostics.captureFailure(m);
+                fail("服务错误："+m.optString("message",m.toString()));
+            }
             }
         }}catch(Exception e){if(ticket==generation)log("服务连接结束："+e);}
         finally{synchronized(this){if(ticket==generation){cleanup();connected=false;running=false;activating=false;state="Root 服务已断开，键鼠已释放";changed();}}}
     }
     private synchronized void writeNow(JSONObject msg)throws IOException{if(writer==null)throw new IOException("尚未连接 Root 服务");writer.write(msg.toString());writer.newLine();writer.flush();}
     public void send(JSONObject msg){final int ticket=generation;work.execute(()->{synchronized(this){if(ticket!=generation)return;try{writeNow(msg);}catch(IOException e){fail("发送失败："+e.getMessage());}}});}
-    public void configure(JSONObject p,int width,int height){ProfileStore.validate(p);try{send(new JSONObject().put("cmd","config").put("profile",p).put("width",width).put("height",height));}catch(JSONException e){throw new IllegalArgumentException(e);}}
+    private float cursorRefreshRate(){
+        try{
+            WindowManager manager=(WindowManager)context.getSystemService(Context.WINDOW_SERVICE);
+            if(manager!=null){
+                float rate=manager.getDefaultDisplay().getRefreshRate();
+                if(Float.isFinite(rate)&&rate>0)return Math.max(30f,Math.min(240f,rate));
+            }
+        }catch(RuntimeException ignored){}
+        return 60f;
+    }
+    public void configure(JSONObject p,int width,int height){ProfileStore.validate(p);try{send(new JSONObject().put("cmd","config").put("profile",p).put("width",width).put("height",height).put("cursorHz",cursorRefreshRate()));}catch(JSONException e){throw new IllegalArgumentException(e);}}
     private void command(String cmd){try{send(new JSONObject().put("cmd",cmd));}catch(JSONException ignored){}}
     public void startMapping(){if(!connected){fail("请先激活 Root 服务");return;}command("start");}
     public void pauseMapping(){if(connected)command("pause");}

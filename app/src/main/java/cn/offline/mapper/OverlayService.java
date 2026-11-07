@@ -18,9 +18,7 @@ import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -46,7 +44,6 @@ public final class OverlayService extends Service implements RootBridge.Listener
     private static final String CHANNEL = "mapping-session";
     private static final int NOTIFICATION_ID = 7;
     private static final int ACCENT = Color.rgb(68, 214, 44);
-    private final Handler main = new Handler(Looper.getMainLooper());
     private WindowManager manager;
     private RootBridge bridge;
     private TextView ball, selectionText;
@@ -59,6 +56,7 @@ public final class OverlayService extends Service implements RootBridge.Listener
     private CursorView cursor;
     private WindowManager.LayoutParams cursorParams;
     private boolean lastNotifiedRunning;
+    private boolean ballAppearanceReady, ballRenderedRunning;
     private float ballFractionX = .94f, ballFractionY = .28f;
 
     @Override public void onCreate() {
@@ -97,14 +95,18 @@ public final class OverlayService extends Service implements RootBridge.Listener
             .addAction(new Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "退出", stop).build()).build();
     }
     @Override public void onChanged() {
-        main.post(() -> {
-            if (destroyed) return;
-            refreshBall(); refreshCursor();
-            if (lastNotifiedRunning != bridge.running()) {
-                lastNotifiedRunning = bridge.running();
-                getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
-            }
-        });
+        // RootBridge already dispatches status listeners on the main thread.
+        if (destroyed) return;
+        refreshBall(); refreshCursor();
+        if (lastNotifiedRunning != bridge.running()) {
+            lastNotifiedRunning = bridge.running();
+            getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+        }
+    }
+    @Override public void onCursorChanged() {
+        // One call per Choreographer frame, with the latest position. No ball
+        // repaint, notification work, or extra Handler hop on cursor packets.
+        if (!destroyed) refreshCursor();
     }
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private Point screen() {
@@ -120,6 +122,7 @@ public final class OverlayService extends Service implements RootBridge.Listener
     private void showBall() {
         if (editor != null || ball != null || destroyed) return;
         ball = new TextView(this); ball.setGravity(Gravity.CENTER); ball.setTextSize(12); ball.setElevation(dp(8)); ball.setContentDescription("离线键鼠映射悬浮球，点击菜单，拖动调整位置");
+        ballAppearanceReady = false;
         ballParams = new WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT);
@@ -160,10 +163,13 @@ public final class OverlayService extends Service implements RootBridge.Listener
     }
     private void refreshBall() {
         if (ball == null) return;
-        ball.setText(bridge.running() ? "运行" : "映射"); ball.setTextColor(bridge.running() ? Color.rgb(7, 9, 11) : ACCENT);
-        ball.setBackground(background(bridge.running() ? ACCENT : Color.argb(238, 22, 28, 24), ACCENT, 26));
+        boolean running = bridge.running();
+        if (ballAppearanceReady && ballRenderedRunning == running) return;
+        ballAppearanceReady = true; ballRenderedRunning = running;
+        ball.setText(running ? "运行" : "映射"); ball.setTextColor(running ? Color.rgb(7, 9, 11) : ACCENT);
+        ball.setBackground(background(running ? ACCENT : Color.argb(238, 22, 28, 24), ACCENT, 26));
     }
-    private void removeBall() { if (ball != null) { remove(ball); ball = null; } }
+    private void removeBall() { if (ball != null) { remove(ball); ball = null; } ballAppearanceReady = false; }
     private void showMenu() {
         dismissDialog();
         Context themed = new android.view.ContextThemeWrapper(this, android.R.style.Theme_Material_Dialog_Alert);
@@ -339,7 +345,7 @@ public final class OverlayService extends Service implements RootBridge.Listener
         if (bridge.running()) { Point size = screen(); bridge.configure(ProfileStore.current(this), size.x, size.y); }
     }
     @Override public void onDestroy() {
-        destroyed = true; main.removeCallbacksAndMessages(null); dismissDialog(); closeEditor(); removeBall(); hideCursor();
+        destroyed = true; dismissDialog(); closeEditor(); removeBall(); hideCursor();
         bridge.removeListener(this); bridge.pauseMapping(); stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy();
     }
 }

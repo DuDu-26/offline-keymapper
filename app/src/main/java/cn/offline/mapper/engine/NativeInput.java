@@ -6,6 +6,7 @@ public final class NativeInput {
     public static native boolean setGrab(boolean enabled);
     public static native int[] poll(int timeoutMillis);
     public static native String devices();
+    public static native String diagnostics();
     public static native String error();
     public static native void close();
 }

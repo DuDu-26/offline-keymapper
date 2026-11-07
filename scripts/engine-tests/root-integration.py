@@ -160,7 +160,7 @@ def main():
         pointer = wait_report(lambda v: v["events"] >= baseline + 2 and v["active"] == 0)
         snapshots["pointerClick"] = pointer
         click = [e for e in pointer["history"] if e["action"] == 0][-1]
-        check(abs(click["pointers"][0]["x"] - (width / 2 + 40)) < 2 and abs(click["pointers"][0]["y"] - (height / 2 + 20)) < 2,
+        check(abs(click["pointers"][0]["x"] - (width / 2 + 40 - 4)) < 2 and abs(click["pointers"][0]["y"] - (height / 2 + 20 - 4)) < 2,
               "unlocked FPS left button clicks ordinary cursor position")
         emit(probe, "key 17 1", "key 57 1", "key 59 1", "key 59 0", "key 272 1", "rel 0 18", "rel 1 -12")
         simultaneous = wait_report(lambda v: v["maxPointers"] >= 4)

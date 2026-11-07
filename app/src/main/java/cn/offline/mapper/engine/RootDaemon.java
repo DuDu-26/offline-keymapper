@@ -22,11 +22,14 @@ import org.json.JSONObject;
 public final class RootDaemon {
     private final Object stateLock=new Object(), outputLock=new Object();
     private volatile boolean alive=true;
+    private volatile long inputEpoch;
     private boolean configured;
     private MappingEngine engine;
     private TouchInjector injector;
     private MouseCursor cursor;
     private long nextCursor;
+    private int cursorIntervalMs=8;
+    private boolean cursorDirty;
     private BufferedWriter output;
     private volatile LocalSocket client;
     private LocalServerSocket server;
@@ -105,13 +108,14 @@ public final class RootDaemon {
             startup("本地认证通过");
             output=new BufferedWriter(new OutputStreamWriter(client.getOutputStream(),StandardCharsets.UTF_8));
             send(new JSONObject().put("type","ready").put("uid",Process.myUid())
-                    .put("devices",new JSONArray(NativeInput.devices())).put("injection",true));
+                    .put("devices",new JSONArray(NativeInput.devices())).put("inputDiagnostics",new JSONObject(NativeInput.diagnostics())).put("injection",true));
             Thread worker=new Thread(this::inputLoop,"mapper-input");worker.setDaemon(true);worker.start();
             try {
                 String line;
                 while(alive && (line=readLine(reader))!=null) {
-                    try{command(new JSONObject(line));}
-                    catch(Exception e){error(message(e));}
+                    JSONObject request=null;
+                    try{request=new JSONObject(line);command(request);}
+                    catch(Exception e){error(message(e),request==null?"parse":request.optString("cmd","runtime"));}
                 }
             } finally {shutdown();worker.join(1000);}
             return true;
@@ -134,16 +138,19 @@ public final class RootDaemon {
                     pause();
                     engine.configure(value.getJSONObject("profile"),value.getInt("width"),value.getInt("height"));
                     cursor.configure(value.getInt("width"),value.getInt("height"));
+                    int cursorHz=Math.max(30,Math.min(240,value.optInt("cursorHz",120)));
+                    cursorIntervalMs=Math.max(1,1000/cursorHz);nextCursor=0;cursorDirty=true;
                     configured=true;lastError="";break;
                 case "start":
                     if(!configured)throw new IllegalStateException("请先加载映射配置");
                     if(!engine.running()) {
+                        inputEpoch++;
                         if(!NativeInput.setGrab(true))throw new IllegalStateException(NativeInput.error());
                         engine.start();lastError="";
                     }
                     break;
                 case "pause":pause();break;
-                case "cancel":engine.cancel();cursor.cancel();break;
+                case "cancel":inputEpoch++;engine.cancel();cursor.cancel();break;
                 case "status":case "ping":break;
                 case "stop":shutdown();return;
                 default:throw new IllegalArgumentException("未知命令: "+cmd);
@@ -152,6 +159,7 @@ public final class RootDaemon {
         }
     }
     private void pause() throws Exception {
+        inputEpoch++;
         try{engine.pause();cursor.cancel();releaseSystemKeys();}finally{NativeInput.setGrab(false);}
     }
     private void inputLoop() {
@@ -159,39 +167,42 @@ public final class RootDaemon {
         while(alive) {
             try {
                 // NativeInput only holds its own lock briefly; never call it while holding outputLock.
+                long readEpoch=inputEpoch;
                 int[] events=NativeInput.poll(8);
                 synchronized(stateLock) {
                     if(!alive)break;
-                    float dx=0,dy=0;int motionDevice=-1;
+                    // A pause/reconfiguration may complete while poll is waiting.
+                    // Never replay its previous session's events into the new layout.
+                    if(readEpoch!=inputEpoch)continue;
+                    MouseMotionBatch motion=new MouseMotionBatch(this::mouse);
                     for(int i=0;i+3<events.length;i+=4) {
                         int device=events[i],type=events[i+1],code=events[i+2],value=events[i+3];
                         long now=SystemClock.uptimeMillis();
-                        if(type==-1){String reason=NativeInput.error();pause();lastError=reason;error(lastError);break;}
+                        if(type==-1){motion.clear();String reason=NativeInput.error();pause();lastError=reason;error(lastError);break;}
                         if(!engine.running())continue;
                         if(type==1) {
+                            motion.flush(now);
                             eventCount++;lastCode=code;
                             send(new JSONObject().put("type","key").put("code",code).put("value",value));
                             if(code==114||code==115||code==116)passSystemKey(code,value);
-                            else if(MouseCursor.button(code)!=0 && (!engine.hasBinding(code)||engine.freePointerButtons())) {
+                            else if(code==272 && (!engine.hasBinding(code)||engine.freePointerButtons())) {
                                 if(!engine.aimLocked())cursor.key(code,value);
                             } else {
                                 boolean wasLocked=engine.aimLocked();engine.key(device,code,value,now);
-                                if(wasLocked!=engine.aimLocked())cursor.cancel();
+                                if(wasLocked!=engine.aimLocked()){cursor.cancel();status();}
                             }
-                            if(!engine.running()){NativeInput.setGrab(false);status();break;}
+                            if(!engine.running()){pause();status();break;}
                         } else if(type==2) {
-                            if(motionDevice!=-1 && motionDevice!=device){mouse(dx,dy,now);dx=0;dy=0;}
-                            motionDevice=device;
-                            if(code==0)dx+=value;else if(code==1)dy+=value;else if(code==8) {
+                            if(code==0||code==1)motion.relative(device,code,value,now);
+                            else if(code==8) {
+                                motion.flush(now);
                                 if(engine.hasBinding(value>0?768:769))engine.wheel(device,value,now);
-                                else if(!engine.aimLocked())cursor.scroll(value);
                             }
                             eventCount++;
-                        } else if(type==0 && code==0 && motionDevice==device) {
-                            mouse(dx,dy,now);dx=0;dy=0;motionDevice=-1;
                         }
                     }
-                    mouse(dx,dy,SystemClock.uptimeMillis());engine.tick(SystemClock.uptimeMillis());
+                    long now=SystemClock.uptimeMillis();
+                    motion.flush(now);engine.tick(now);flushCursor(now);
                     if(SystemClock.uptimeMillis()>=nextStatus){status();nextStatus=SystemClock.uptimeMillis()+1000;}
                 }
             } catch(Exception e) {
@@ -222,19 +233,26 @@ public final class RootDaemon {
         if(engine.aimLocked())engine.mouse(dx,dy,now);
         else {
             cursor.move(dx,dy);
-            if((dx!=0||dy!=0) && now>=nextCursor) {
-                nextCursor=now+16;
-                send(new JSONObject().put("type","cursor").put("x",cursor.x()).put("y",cursor.y()).put("cursorX",cursor.x()).put("cursorY",cursor.y()));
-            }
+            if(dx!=0||dy!=0)cursorDirty=true;
         }
+    }
+    private void flushCursor(long now) throws Exception {
+        if(!engine.running()||engine.aimLocked()||!cursorDirty||now<nextCursor)return;
+        nextCursor=now+cursorIntervalMs;cursorDirty=false;
+        send(new JSONObject().put("type","cursor").put("x",cursor.x()).put("y",cursor.y()));
     }
     private void status() throws Exception {
         send(new JSONObject().put("type","status").put("running",engine.running()).put("aimLocked",engine.aimLocked())
                 .put("devices",new JSONArray(NativeInput.devices())).put("eventCount",eventCount).put("lastCode",lastCode).put("error",lastError)
+                .put("inputDiagnostics",new JSONObject(NativeInput.diagnostics()))
                 .put("cursorX",cursor.x()).put("cursorY",cursor.y()));
     }
     private void error(String message) throws Exception {
-        lastError=message;send(new JSONObject().put("type","error").put("message",message));
+        error(message,"runtime");
+    }
+    private void error(String message,String operation) throws Exception {
+        lastError=message;send(new JSONObject().put("type","error").put("message",message).put("operation",operation)
+                .put("devices",new JSONArray(NativeInput.devices())).put("inputDiagnostics",new JSONObject(NativeInput.diagnostics())));
     }
     private void send(JSONObject value) throws Exception {
         synchronized(outputLock){if(output!=null){output.write(value.toString());output.newLine();output.flush();}}
