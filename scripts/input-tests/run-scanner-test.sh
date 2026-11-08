@@ -17,8 +17,8 @@ case "$ABI" in
     x86_64) TARGET=x86_64-linux-android26 ;;
     *) echo "Unsupported ABI: $ABI" >&2; exit 2 ;;
 esac
-mkdir -p "$PROJECT_ROOT/research/input-tests"
-EXE="$PROJECT_ROOT/research/input-tests/scanner-self-test-$ABI"
+mkdir -p "$PROJECT_ROOT/build/input-tests"
+EXE="$PROJECT_ROOT/build/input-tests/scanner-self-test-$ABI"
 "$ANDROID_NDK_DIR/toolchains/llvm/prebuilt/darwin-x86_64/bin/$TARGET-clang++" \
     -std=c++17 -Wall -Wextra -Werror -O2 -static-libstdc++ \
     "$PROJECT_ROOT/scripts/input-tests/ScannerSelfTest.cpp" -o "$EXE"

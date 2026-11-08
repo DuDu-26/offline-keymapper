@@ -101,7 +101,7 @@ public final class EngineSelfTest {
         check(events.isEmpty(),"unmapped right button does not synthesize system mouse events");
         cursor.key(272,1);cursor.move(-10,10);cursor.key(272,0);
         check(events.size()==3&&events.get(0).action==MotionEvent.ACTION_DOWN&&events.get(1).action==MotionEvent.ACTION_MOVE&&events.get(2).action==MotionEvent.ACTION_UP,"pointer click and drag use a touch gesture");
-        check(events.get(0).x[0]==995&&events.get(0).y[0]==0,"recovered four-pixel hotspot clamps at zero");
+        check(events.get(0).x[0]==995&&events.get(0).y[0]==0,"four-pixel arrow-tip offset clamps at zero");
         for(Event event:events)check(event.source==android.view.InputDevice.SOURCE_TOUCHSCREEN,"pointer emits only touchscreen source");
         events.clear();touch.down(1,100,100);cursor.key(272,1);cursor.cancel();
         check(touch.contains(1)&&!touch.contains(29),"cursor cancellation preserves other mapped fingers");
@@ -123,9 +123,9 @@ public final class EngineSelfTest {
         engine.configure(randomProfile,1920,1080);engine.start();events.clear();
         engine.key(1,17,1,6000);engine.key(1,57,1,6001);Thread.sleep(450);
         synchronized(touch){
-            check(events.size()>10,"random joystick emits the real multi-point path");
+            check(events.size()>10,"natural joystick emits a multi-point path");
             check(touch.contains(30)&&touch.contains(1),"random worker shares a coherent multi-touch stream");
-            for(Event e:events)for(float value:e.size)check(value>=.02f&&value<=.05f,"original touch size field range");
+            for(Event e:events)for(float value:e.size)check(value>=.02f&&value<=.05f,"touch size field stays in a plausible range");
         }
         engine.key(1,66,1,6500);int stopped;
         synchronized(touch){stopped=events.size();check(!touch.contains(30)&&!touch.contains(1),"F8 releases random path and other touch");}
@@ -134,7 +134,7 @@ public final class EngineSelfTest {
         engine.configure(new JSONObject().put("bindings",new JSONArray()),1920,1080);
         synchronized(touch){stopped=events.size();}
         Thread.sleep(100);synchronized(touch){check(events.size()==stopped,"reconfiguration shuts down the previous worker");}
-        System.out.println("PASS random trajectory concurrency, original size, F8 cancellation and reconfiguration");
+        System.out.println("PASS natural trajectory concurrency, touch size, F8 cancellation and reconfiguration");
         java.util.concurrent.CountDownLatch entered=new java.util.concurrent.CountDownLatch(1),releaseFailure=new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicReference<Exception> observedFailure=new java.util.concurrent.atomic.AtomicReference<>();
         TouchSink failing=new TouchSink(){
@@ -145,7 +145,7 @@ public final class EngineSelfTest {
             public void up(int id){active=false;}
             public void cancel(){active=false;}
         };
-        JoystickController failedController=new JoystickController(failing,new JSONObject().put("trajectoryMode",2).put("radiusPixels",90),"",1920,1080);
+        JoystickController failedController=new JoystickController(failing,new JSONObject().put("trajectoryMode",2).put("radiusPixels",90),1920,1080);
         failedController.direction(true,false,false,false);
         check(entered.await(2,java.util.concurrent.TimeUnit.SECONDS),"failure fixture enters old MOVE");
         Thread turning=new Thread(()->{try{failedController.direction(false,false,false,true);}catch(Exception error){observedFailure.set(error);}},"test-turn-during-failure");

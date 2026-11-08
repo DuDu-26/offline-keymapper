@@ -56,15 +56,18 @@ public final class EditorDialogs {
         EditText y = form.number("中心 Y（屏幕高度 %）", entry.optDouble("y", .75) * 100);
         EditText radius = form.number("半径（屏幕短边 %，1～45）", entry.optDouble("radius", .075) * 100);
         CheckBox pixelRadius = form.check("用像素精确设置半径", entry.has("radiusPixels"));
-        EditText pixels = form.number("精确半径（像素，1～900；原版默认 90）", entry.optInt("radiusPixels",90));
-        Spinner trajectory = form.spinner("触摸轨迹", new String[]{"全摇感随机", "半摇感随机", "普通摇杆"});
+        EditText pixels = form.number("精确半径（像素，1～900）", entry.optInt("radiusPixels",90));
+        Spinner trajectory = form.spinner("摇杆手感", new String[]{"拟真（平滑 + 轻微漂移）", "平滑（弹簧跟随）", "直接（瞬间到位）"});
         trajectory.setSelection(entry.optInt("trajectoryMode",0));
-        Spinner variant = form.spinner("轨迹参数档", new String[]{"跟随模式和当前游戏", "原版基础参数", "原版增强参数", "原版轻量参数", "原版二阶段回调"});
-        variant.setSelection(entry.optInt("trajectoryVariant",-1)+1);
+        cn.offline.mapper.engine.JoystickTrajectory.Params defaults=cn.offline.mapper.engine.JoystickTrajectory.Params.defaults(entry.optInt("trajectoryMode",0));
+        EditText settle = form.number("到位时间（毫秒，10～500）", entry.optInt("settleMs",defaults.settleMs));
+        EditText wobble = form.number("按住漂移幅度（像素，0～40，仅拟真）", entry.optInt("wobblePx",defaults.wobblePx));
+        EditText overshoot = form.number("推出半径之外（%，0～100）", entry.optInt("overshootPercent",defaults.overshootPercent));
+        EditText startOffset = form.number("按下起点随机偏移（像素，0～60）", entry.optInt("startOffsetPx",20));
         CheckBox customAngles = form.check("自定义终点偏角范围",entry.optBoolean("customAngles",false));
-        EditText angleMin = form.number("偏角下限（整数度，-180～180）",entry.optInt("angleMin",-12));
-        EditText angleMax = form.number("偏角上限（整数度，-180～180）",entry.optInt("angleMax",12));
-        form.note("关闭自定义时使用原版范围；开启后仅替换终点偏角，不改变曲线、半径、起点或持续扰动。两个端点都包含在内。普通摇杆不使用随机偏角。");
+        EditText angleMin = form.number("偏角下限（整数度，-45～45）",entry.optInt("angleMin",-8));
+        EditText angleMax = form.number("偏角上限（整数度，-45～45）",entry.optInt("angleMax",8));
+        form.note("拟真模式下每次换方向，终点会在偏角范围内随机；平滑模式使用范围中值；直接模式忽略。");
         Spinner radiusSwitch = form.spinner("半径切换",new String[]{"不切换","长按切换","按下切换"});
         radiusSwitch.setSelection(entry.optInt("radiusSwitchMode",0));
         EditText radiusKey = form.key("半径切换键",entry.optInt("radiusSwitchCode",56));
@@ -72,23 +75,22 @@ public final class EditorDialogs {
         EditText up = form.key("向上", entry.optInt("up", 17)), down = form.key("向下", entry.optInt("down", 31));
         EditText left = form.key("向左", entry.optInt("left", 30)), right = form.key("向右", entry.optInt("right", 32));
         android.widget.Button details = new android.widget.Button(form.context);
-        details.setText("查看算法与原版参数");form.fields.addView(details);
+        details.setText("查看手感说明");form.fields.addView(details);
         TextView explanation = new TextView(form.context);explanation.setTextColor(MUTED);explanation.setTextSize(13);
-        explanation.setText("随机轨迹：按下时每轴整数偏移 -30～29 像素；终点偏角在所选整数范围内均匀抽取，半径倍率另行均匀抽取。\n\n"
-                +"基础：偏角 ±12°，半径 1～1.8 倍，终点每轴再偏移 -6～5 像素。\n增强：±15°，1～2.2 倍，-10～9 像素。\n轻量：±6°，1～1.4 倍，-3～2 像素。\n\n"
-                +"移动由五类随机曲线分支生成，第一阶段总睡眠 33～45 毫秒，基础点数 15～30。二阶段档会短暂停顿，再移动到接近原半径的位置。\n\n"
-                +"持续按住：基础和轻量档每 150～300 毫秒，在目标附近每轴 -5～5 像素重新采样；增强档为 120～260 毫秒、-12～12 像素。不是逐步累加的随机游走。\n\n"
-                +"转向保持同一触点，从实际当前位置开始；相反方向互相抵消；松开最后方向键时直接抬起。普通档按固定八方向移动，没有上述轨迹随机。\n\n"
-                +"触点大小字段每次事件另行在约 0.02～0.05 之间采样。这与角度、半径是独立的算法。轨迹对比一致也不代表游戏账号安全。");
+        explanation.setText("手指被一根“弹簧”拉向摇杆边缘的目标点，按固定帧率平滑移动。换方向只更换目标，速度会延续，所以转向时自然划出弧线。\n\n"
+                +"到位时间：越小越跟手，越大越柔和。\n按住漂移：拟真模式下按住方向时，手指在目标附近缓慢连续地小幅移动。\n推出半径之外：让终点略超出摇杆半径，确保游戏识别为推满。\n起点偏移：每次按下时手指落点在中心附近随机。\n\n"
+                +"相反方向键互相抵消；松开最后一个方向键时在当前位置抬起。");
         explanation.setPadding(0,form.dp(8),0,form.dp(12));explanation.setVisibility(View.GONE);form.fields.addView(explanation);
-        details.setOnClickListener(v->{boolean show=explanation.getVisibility()!=View.VISIBLE;explanation.setVisibility(show?View.VISIBLE:View.GONE);details.setText(show?"收起算法说明":"查看算法与原版参数");});
+        details.setOnClickListener(v->{boolean show=explanation.getVisibility()!=View.VISIBLE;explanation.setVisibility(show?View.VISIBLE:View.GONE);details.setText(show?"收起说明":"查看手感说明");});
         return form.show("方向摇杆设置", () -> {
             JSONObject copy = new JSONObject(entry.toString());
             copy.put("enabled", enabled.isChecked()).put("x", number(x, 0, 100) / 100).put("y", number(y, 0, 100) / 100)
                 .put("radius", number(radius, 1, 45) / 100).put("up", key(up)).put("down", key(down)).put("left", key(left)).put("right", key(right));
             if(pixelRadius.isChecked())copy.put("radiusPixels",integer(pixels,1,900));else copy.remove("radiusPixels");
-            copy.put("trajectoryMode",trajectory.getSelectedItemPosition()).put("trajectoryVariant",variant.getSelectedItemPosition()-1)
-                .put("customAngles",customAngles.isChecked()).put("angleMin",integer(angleMin,-180,180)).put("angleMax",integer(angleMax,-180,180))
+            copy.remove("trajectoryVariant");
+            copy.put("trajectoryMode",trajectory.getSelectedItemPosition()).put("settleMs",integer(settle,10,500)).put("wobblePx",integer(wobble,0,40))
+                .put("overshootPercent",integer(overshoot,0,100)).put("startOffsetPx",integer(startOffset,0,60))
+                .put("customAngles",customAngles.isChecked()).put("angleMin",integer(angleMin,-45,45)).put("angleMax",integer(angleMax,-45,45))
                 .put("radiusSwitchMode",radiusSwitch.getSelectedItemPosition()).put("radiusSwitchCode",key(radiusKey)).put("radiusSwitchPercent",integer(percent,30,300));
             cn.offline.mapper.engine.JoystickController.validateOptions(copy);
             merge(entry, copy); changed.run();

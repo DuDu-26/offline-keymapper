@@ -49,7 +49,7 @@ final class MappingEngine {
             b.interval=bounded(value.optInt("interval",100),30,10000); parsed.add(b);
         }
         JSONObject nextJoy=profile.optJSONObject("joystick"), nextAim=profile.optJSONObject("aim");
-        validateRegion(nextJoy); validateRegion(nextAim);
+        JoystickController.migrate(nextJoy); validateRegion(nextJoy); validateRegion(nextAim);
         JoystickController.validateOptions(nextJoy);
         if(nextJoy!=null && nextJoy.optBoolean("enabled",false)) {
             HashSet<Integer> directionCodes=new HashSet<>();
@@ -67,7 +67,7 @@ final class MappingEngine {
         pause(); this.width=width; this.height=height; bindings.clear(); bindings.addAll(parsed);
         joystick=nextJoy==null?new JSONObject():nextJoy; aim=nextAim==null?new JSONObject():nextAim;
         if(joystickController!=null)joystickController.close();
-        joystickController=joystick.optBoolean("enabled",false)?new JoystickController(touch,joystick,profile.optString("package",""),width,height):null;
+        joystickController=joystick.optBoolean("enabled",false)?new JoystickController(touch,joystick,width,height):null;
     }
     private static void validateRegion(JSONObject value) {
         if(value==null)return;

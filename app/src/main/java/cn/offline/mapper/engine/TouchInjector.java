@@ -12,8 +12,8 @@ import java.util.Random;
 final class TouchInjector implements TouchSink {
     interface InjectionSink { boolean inject(InputEvent event) throws Exception; }
     private static final class Point {
-        final int logicalId, pointerId; float x, y;
-        Point(int logicalId, int pointerId, float x, float y) { this.logicalId = logicalId; this.pointerId = pointerId; this.x = x; this.y = y; }
+        final int logicalId, pointerId; final float size; float x, y;
+        Point(int logicalId, int pointerId, float x, float y, float size) { this.logicalId = logicalId; this.pointerId = pointerId; this.x = x; this.y = y; this.size = size; }
     }
     private final ArrayList<Point> points = new ArrayList<>();
     private final Object inputManager;
@@ -54,7 +54,8 @@ final class TouchInjector implements TouchSink {
         boolean[] used = new boolean[10];
         for (Point point : points) used[point.pointerId] = true;
         int pointerId = 0; while (used[pointerId]) pointerId++;
-        points.add(new Point(id, pointerId, x, y));
+        // Each finger keeps one plausible contact size for its whole gesture.
+        points.add(new Point(id, pointerId, x, y, 0.03f + sizeRandom.nextFloat() * 0.015f));
         int action = points.size() == 1 ? MotionEvent.ACTION_DOWN
                 : MotionEvent.ACTION_POINTER_DOWN | ((points.size() - 1) << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
         emit(action);
@@ -89,8 +90,7 @@ final class TouchInjector implements TouchSink {
             coordinates[i] = new MotionEvent.PointerCoords();
             coordinates[i].x = p.x; coordinates[i].y = p.y;
             coordinates[i].pressure = 1f;
-            // The supplied service samples size for every active point on every event.
-            coordinates[i].size = sizeRandom.nextFloat()*0.030000001f+0.02f;
+            coordinates[i].size = points.get(i).size;
         }
         eventTime = Math.max(eventTime, SystemClock.uptimeMillis());
         MotionEvent event = MotionEvent.obtain(downTime, eventTime, action, points.size(),
