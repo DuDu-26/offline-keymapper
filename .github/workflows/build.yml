@@ -2,6 +2,7 @@ name: Build
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -15,6 +16,13 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Download Gradle (retry on network errors)
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --version && exit 0
+            echo "Gradle download failed (attempt $attempt), retrying"; sleep $((attempt * 15))
+          done
+          exit 1
       - name: Trajectory tests
         run: ./scripts/test-trajectory.sh
       - name: Build debug APK and lint
