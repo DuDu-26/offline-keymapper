@@ -85,7 +85,11 @@ final class MappingEngine {
         return (float)number;
     }
     private static int bounded(int n,int min,int max) { return Math.max(min,Math.min(n,max)); }
-    void start() { running=true; }
+    void start() {
+        running=true;
+        // FPS layouts usually want the mouse to steer the view immediately; F1 still toggles the free pointer.
+        if(aim.optBoolean("enabled",false)&&aim.optBoolean("lockOnStart",false))aimLocked=true;
+    }
     void pause() throws Exception {
         running=false; aimLocked=false; pressed.clear();
         for(Binding b:bindings) { b.due=0;b.began=0;b.repeating=false;b.swiping=false; }
@@ -93,7 +97,7 @@ final class MappingEngine {
         finally{touch.cancel();}
     }
     void cancel() throws Exception {
-        boolean wasRunning=running; pause(); running=wasRunning;
+        boolean wasRunning=running,wasLocked=aimLocked; pause(); running=wasRunning; aimLocked=wasRunning&&wasLocked;
     }
     private boolean held(int code) { for(Set<Integer> set:pressed.values())if(set.contains(code))return true;return false; }
     void key(int device,int code,int value,long now) throws Exception {

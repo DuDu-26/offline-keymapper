@@ -59,9 +59,9 @@ public final class EngineSelfTest {
         events.clear();engine.key(1,17,1,1100);engine.key(1,32,1,1101);
         awaitPoint(touch,events,242,378);
         Event diagonal=events.get(events.size()-1);
-        check(diagonal.x[0]==242&&diagonal.y[0]==378,"original diagonal integer truncation");
+        check(diagonal.x[0]==242&&diagonal.y[0]==378,"direct diagonal lands on the rounded edge point");
         engine.key(1,17,0,1102);engine.key(1,32,0,1103);check(!touch.contains(30),"joystick release");
-        System.out.println("PASS original joystick diagonal integer truncation and release");
+        System.out.println("PASS direct joystick diagonal and release");
         profile.put("bindings",new JSONArray().put(binding(1,57,"repeat")).put(binding(2,28,"swipe")).put(binding(3,46,"tap")));
         engine.configure(profile,1000,600);engine.start();events.clear();
         engine.key(1,57,1,2000);engine.tick(2050);check(!touch.contains(1),"repeat release half interval");
@@ -80,6 +80,13 @@ public final class EngineSelfTest {
         engine.start();engine.key(1,57,1,3300);engine.pause();
         check(!engine.running()&&!touch.contains(1),"disconnect pause clears pointers");
         System.out.println("PASS aim idle, F8 and disconnect cancellation");
+        engine.configure(new JSONObject().put("bindings",new JSONArray())
+                .put("aim",new JSONObject().put("enabled",true).put("x",.6).put("y",.5).put("radius",.2).put("lockOnStart",true)),1000,600);
+        engine.start();check(engine.aimLocked(),"lockOnStart locks aim when mapping starts");
+        engine.mouse(15,0,3400);check(touch.contains(31),"mouse steers the view without pressing F1");
+        engine.key(1,59,1,3401);engine.key(1,59,0,3402);check(!engine.aimLocked()&&!touch.contains(31),"F1 still releases to the free pointer");
+        engine.pause();check(!engine.aimLocked(),"pause clears the lock");
+        System.out.println("PASS lock aim on start");
         engine.configure(new JSONObject().put("bindings",new JSONArray().put(binding(1,57,"hold"))),1000,600);engine.start();
         engine.key(1,57,1,4000);engine.key(2,57,1,4001);engine.key(1,57,0,4002);
         check(touch.contains(1),"same key on second keyboard remains held");engine.key(2,57,0,4003);

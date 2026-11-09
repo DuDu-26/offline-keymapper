@@ -108,11 +108,13 @@ public final class EditorDialogs {
         EditText toggle = form.key("视角捕获切换键", entry.optInt("toggleCode", 59));
         EditText idle = form.number("鼠标停下后释放（毫秒，0～2000）", entry.optInt("idleMs", 80));
         CheckBox invert = form.check("反转垂直方向", entry.optBoolean("invertY", false));
+        CheckBox lockOnStart = form.check("开始映射时直接用鼠标控制视角", entry.optBoolean("lockOnStart", true));
+        form.note("关闭后，开始映射时鼠标是普通指针，需要按视角切换键（默认 F1）才会控制视角。");
         return form.show("鼠标视角设置", () -> {
             JSONObject copy = new JSONObject(entry.toString());
             copy.put("enabled", enabled.isChecked()).put("x", number(x, 0, 100) / 100).put("y", number(y, 0, 100) / 100)
                 .put("radius", number(radius, 2, 45) / 100).put("sensitivityX", number(sx, .05, 30)).put("sensitivityY", number(sy, .05, 30))
-                .put("toggleCode", key(toggle)).put("idleMs", Math.round(number(idle, 0, 2000))).put("invertY", invert.isChecked());
+                .put("toggleCode", key(toggle)).put("idleMs", Math.round(number(idle, 0, 2000))).put("invertY", invert.isChecked()).put("lockOnStart", lockOnStart.isChecked());
             merge(entry, copy); changed.run();
         });
     }
