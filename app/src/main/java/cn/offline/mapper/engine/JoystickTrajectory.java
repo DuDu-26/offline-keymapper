@@ -104,6 +104,7 @@ public final class JoystickTrajectory {
         private final Params params; private final MoveSink sink;
         private final Clock clock; private final Sleeper sleeper;
         private final Drift driftX, driftY;
+        private final float omega;
         private int lastX = Integer.MIN_VALUE, lastY = Integer.MIN_VALUE;
 
         public Motion(State state, int pointerId, float[] target, int width, int height, Params params,
@@ -112,6 +113,9 @@ public final class JoystickTrajectory {
             this.clock = clock; this.sleeper = sleeper;
             minX = 0; minY = 0; maxX = width - 1; maxY = height - 1;
             targetX = clamp(target[0], minX, maxX); targetY = clamp(target[1], minY, maxY);
+            // Natural style: every hold gets its own speed, 0.8x to 1.25x of the settle time.
+            float speed = params.style == NATURAL ? 0.8f + random.nextFloat() * 0.45f : 1f;
+            omega = 5000f / (Math.max(1, params.settleMs) * speed);
             boolean drift = params.style == NATURAL && params.wobblePx > 0;
             driftX = drift ? new Drift(random, 260 + random.nextInt(120)) : null;
             driftY = drift ? new Drift(random, 260 + random.nextInt(120)) : null;
@@ -121,14 +125,12 @@ public final class JoystickTrajectory {
                     float dx = targetX - state.x, dy = targetY - state.y;
                     float length = (float) Math.hypot(dx, dy);
                     if (length > 1) {
-                        float kick = (random.nextFloat() * 2 - 1) * 0.35f * length * omega();
+                        float kick = (random.nextFloat() * 2 - 1) * 0.35f * length * omega;
                         state.vx += -dy / length * kick; state.vy += dx / length * kick;
                     }
                 }
             }
         }
-
-        private float omega() { return 5000f / Math.max(1, params.settleMs); }
 
         @Override public void run() {
             try { loop(); }
@@ -146,7 +148,6 @@ public final class JoystickTrajectory {
                 }
                 return;
             }
-            float omega = omega();
             long previous = clock.nanos();
             while (true) {
                 sleeper.sleep(FRAME_MS);

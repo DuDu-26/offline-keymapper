@@ -86,6 +86,13 @@ public final class TrajectoryTest {
             if (pa[0] != pb[0] || pa[1] != pb[1]) distinct = true;
         }
         check(distinct, "natural paths differ between holds");
+        java.util.HashSet<Integer> reachTimes = new java.util.HashSet<>();
+        for (long seed = 30; seed < 40; seed++) {
+            JoystickTrajectory.State t = new JoystickTrajectory.State(); t.place(500, 500);
+            JoystickTrajectory.Params still = new JoystickTrajectory.Params(JoystickTrajectory.NATURAL, 70, 0, 15, 0, 0);
+            for (int[] p : run(t, 1, 0, still, seed, 200, radius)) if (p[0] >= 500 + radius) { reachTimes.add(p[2]); break; }
+        }
+        check(reachTimes.size() >= 3, "natural turn speed varies between holds (" + reachTimes + " frames)");
         JoystickTrajectory.State a = new JoystickTrajectory.State(); a.place(500, 500);
         JoystickTrajectory.State b = new JoystickTrajectory.State(); b.place(500, 500);
         ArrayList<int[]> ra = run(a, -1, 1, natural, 77, 200, radius), rb = run(b, -1, 1, natural, 77, 200, radius);
