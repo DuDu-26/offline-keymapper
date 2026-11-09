@@ -183,6 +183,7 @@ public final class OverlayService extends Service implements RootBridge.Listener
         sheet.item(running ? Icon.PAUSE : Icon.PLAY, running ? Ui.WARN : Ui.SUCCESS, running ? "暂停映射" : "开始映射", running ? "键鼠恢复普通输入" : "按当前布局接管键鼠",
                 () -> { if (bridge.running()) bridge.pauseMapping(); else startMapping(); });
         sheet.item(Icon.EDIT, ACCENT, "编辑屏幕点位", "拖动摇杆、视角和按键位置", this::openEditor);
+        if (ProfileStore.current(this).optJSONObject("aim") != null) sheet.item(Icon.TARGET, ACCENT, "视角灵敏度", "调整鼠标转视角的快慢，立即生效", this::adjustSensitivity);
         sheet.item(Icon.HOME, ACCENT, "回到主界面", null,
                 () -> startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)));
         sheet.item(Icon.POWER, Ui.DANGER, "退出悬浮球和映射", "停止服务并释放键鼠", () -> { bridge.stop(); stopSelf(); });
@@ -191,6 +192,20 @@ public final class OverlayService extends Service implements RootBridge.Listener
         sheet.show();
         dialog.getWindow().setLayout(Math.min(dp(360), screen().x - dp(24)), -2);
         dialog.setOnDismissListener(d -> refreshCursor()); refreshCursor();
+    }
+    private void adjustSensitivity() {
+        JSONObject profile = ProfileStore.current(this), aim = profile.optJSONObject("aim");
+        if (aim == null) return;
+        boolean resume = bridge.running();
+        // The dialog needs the pointer and keyboard, so mapping pauses while it is open.
+        if (resume) bridge.pauseMapping();
+        boolean[] applied = {false};
+        dialog = EditorDialogs.sensitivity(this, aim, () -> {
+            ProfileStore.save(this, profile); applied[0] = true;
+            if (bridge.connected()) { Point size = screen(); bridge.configure(profile, size.x, size.y); if (resume) bridge.startMapping(); }
+        });
+        dialog.setOnDismissListener(d -> { if (resume && !applied[0] && bridge.connected()) bridge.startMapping(); refreshCursor(); });
+        refreshCursor();
     }
     private Button button(String title) {
         Button button = new Button(this); button.setText(title); button.setTextSize(13); button.setTextColor(Ui.TEXT); button.setAllCaps(false);

@@ -33,7 +33,8 @@ public final class RootDaemon {
     private BufferedWriter output;
     private volatile LocalSocket client;
     private LocalServerSocket server;
-    private long eventCount;
+    private long eventCount,lastMotionNanos;
+    private float motionIntervalMs;
     private int lastCode=-1;
     private String lastError="";
     private final HashMap<Integer,Long> systemKeyDown=new HashMap<>();
@@ -175,6 +176,7 @@ public final class RootDaemon {
                     // Never replay its previous session's events into the new layout.
                     if(readEpoch!=inputEpoch)continue;
                     MouseMotionBatch motion=new MouseMotionBatch(this::mouse);
+                    boolean moved=false;
                     for(int i=0;i+3<events.length;i+=4) {
                         int device=events[i],type=events[i+1],code=events[i+2],value=events[i+3];
                         long now=SystemClock.uptimeMillis();
@@ -192,7 +194,7 @@ public final class RootDaemon {
                             }
                             if(!engine.running()){pause();status();break;}
                         } else if(type==2) {
-                            if(code==0||code==1)motion.relative(device,code,value,now);
+                            if(code==0||code==1){motion.relative(device,code,value,now);moved=true;}
                             else if(code==8) {
                                 motion.flush(now);
                                 if(engine.hasBinding(value>0?768:769))engine.wheel(device,value,now);
@@ -200,6 +202,7 @@ public final class RootDaemon {
                             eventCount++;
                         }
                     }
+                    if(moved)measureMouse();
                     long now=SystemClock.uptimeMillis();
                     motion.flush(now);engine.tick(now);flushCursor(now);
                     if(SystemClock.uptimeMillis()>=nextStatus){status();nextStatus=SystemClock.uptimeMillis()+1000;}
@@ -212,6 +215,12 @@ public final class RootDaemon {
                 }
             }
         }
+    }
+    /** Smoothed gap between mouse reports while the mouse is moving, for the report-rate readout. */
+    private void measureMouse() {
+        long nanos=System.nanoTime();float gap=(nanos-lastMotionNanos)/1_000_000f;lastMotionNanos=nanos;
+        if(gap<=0||gap>40)return; // A pause between two movements says nothing about the rate.
+        motionIntervalMs=motionIntervalMs==0?gap:motionIntervalMs+(gap-motionIntervalMs)*.05f;
     }
     private void passSystemKey(int evdevCode,int value) throws Exception {
         int code=evdevCode==114?KeyEvent.KEYCODE_VOLUME_DOWN:evdevCode==115?KeyEvent.KEYCODE_VOLUME_UP:KeyEvent.KEYCODE_POWER;
@@ -244,7 +253,8 @@ public final class RootDaemon {
         send(new JSONObject().put("type","status").put("running",engine.running()).put("aimLocked",engine.aimLocked())
                 .put("devices",new JSONArray(NativeInput.devices())).put("eventCount",eventCount).put("lastCode",lastCode).put("error",lastError)
                 .put("inputDiagnostics",new JSONObject(NativeInput.diagnostics()))
-                .put("cursorX",cursor.x()).put("cursorY",cursor.y()));
+                .put("cursorX",cursor.x()).put("cursorY",cursor.y())
+                .put("mouseHz",motionIntervalMs>0?Math.round(1000f/motionIntervalMs):0));
     }
     private void error(String message) throws Exception {
         error(message,"runtime");

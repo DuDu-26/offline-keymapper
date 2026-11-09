@@ -103,8 +103,20 @@ public final class EditorDialogs {
         EditText x = form.number("中心 X（屏幕宽度 %）", entry.optDouble("x", .65) * 100);
         EditText y = form.number("中心 Y（屏幕高度 %）", entry.optDouble("y", .5) * 100);
         EditText radius = form.number("滑动范围半径（屏幕短边 %，2～45）", entry.optDouble("radius", .2) * 100);
-        EditText sx = form.number("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1));
-        EditText sy = form.number("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1));
+        EditText sx = form.slider("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1), .05, 5, .05);
+        EditText sy = form.slider("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1), .05, 5, .05);
+        form.note("滑块调到 5，更大的数值可以直接在右边输入。");
+        Spinner rate = form.spinner("视角发送频率", rateNames());
+        rate.setSelection(rateIndex(entry.optInt("rateHz", 0)));
+        int mouseHz = RootBridge.get(context).detail().optInt("mouseHz", 0);
+        form.note((mouseHz > 0 ? "检测到你的鼠标回报率约 " + mouseHz + " Hz。" : "开始映射并移动鼠标后，这里会显示检测到的鼠标回报率。")
+                + "跟随鼠标：鼠标每上报一次就滑动一次，最跟手。固定频率：把这段时间内的鼠标移动合并成一次滑动，总移动量不变；高回报率鼠标（500/1000 Hz）在游戏里转视角发飘或卡顿时，可以选成和屏幕刷新率一致的数值。");
+        EditText scope = form.key("开镜键（留空或填 0 表示不用）", entry.optInt("scopeCode", 0));
+        if (entry.optInt("scopeCode", 0) == 0) scope.setText("");
+        Spinner scopeMode = form.spinner("开镜方式", new String[]{"按住开镜键时生效", "按一下开，再按一下关"});
+        scopeMode.setSelection(entry.optInt("scopeMode", 0));
+        EditText scopeScale = form.slider("开镜灵敏度倍率（0.05～5）", entry.optDouble("scopeScale", .6), .05, 2, .05);
+        form.note("开镜时的灵敏度 = 上面的灵敏度 × 倍率。开镜键可以和游戏里开镜按钮绑定的键相同，例如鼠标右键。");
         EditText toggle = form.key("视角捕获切换键", entry.optInt("toggleCode", 59));
         EditText idle = form.number("鼠标停下后释放（毫秒，0～2000）", entry.optInt("idleMs", 80));
         CheckBox invert = form.check("反转垂直方向", entry.optBoolean("invertY", false));
@@ -114,9 +126,43 @@ public final class EditorDialogs {
             JSONObject copy = new JSONObject(entry.toString());
             copy.put("enabled", enabled.isChecked()).put("x", number(x, 0, 100) / 100).put("y", number(y, 0, 100) / 100)
                 .put("radius", number(radius, 2, 45) / 100).put("sensitivityX", number(sx, .05, 30)).put("sensitivityY", number(sy, .05, 30))
-                .put("toggleCode", key(toggle)).put("idleMs", Math.round(number(idle, 0, 2000))).put("invertY", invert.isChecked()).put("lockOnStart", lockOnStart.isChecked());
+                .put("toggleCode", key(toggle)).put("idleMs", Math.round(number(idle, 0, 2000))).put("invertY", invert.isChecked()).put("lockOnStart", lockOnStart.isChecked())
+                .put("rateHz", cn.offline.mapper.engine.AimOptions.RATES[rate.getSelectedItemPosition()])
+                .put("scopeCode", optionalKey(scope)).put("scopeMode", scopeMode.getSelectedItemPosition()).put("scopeScale", number(scopeScale, .05, 5));
+            cn.offline.mapper.engine.AimOptions.validate(copy);
             merge(entry, copy); changed.run();
         });
+    }
+    /** Quick in-game adjustment of the view sensitivity only; {@code changed} runs after the profile entry is updated. */
+    public static AlertDialog sensitivity(Context context, JSONObject entry, Runnable changed) {
+        Form form = new Form(context);
+        EditText sx = form.slider("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1), .05, 5, .05);
+        EditText sy = form.slider("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1), .05, 5, .05);
+        EditText scopeScale = form.slider("开镜灵敏度倍率（0.05～5）", entry.optDouble("scopeScale", .6), .05, 2, .05);
+        Spinner rate = form.spinner("视角发送频率", rateNames());
+        rate.setSelection(rateIndex(entry.optInt("rateHz", 0)));
+        form.note("应用后立即生效。开镜键和其他视角选项在“编辑屏幕点位”里双击视角区域设置。");
+        return form.show("视角灵敏度", () -> {
+            JSONObject copy = new JSONObject(entry.toString());
+            copy.put("sensitivityX", number(sx, .05, 30)).put("sensitivityY", number(sy, .05, 30)).put("scopeScale", number(scopeScale, .05, 5))
+                .put("rateHz", cn.offline.mapper.engine.AimOptions.RATES[rate.getSelectedItemPosition()]);
+            merge(entry, copy); changed.run();
+        });
+    }
+    private static String[] rateNames() {
+        int[] rates = cn.offline.mapper.engine.AimOptions.RATES; String[] names = new String[rates.length];
+        for (int i = 0; i < rates.length; i++) names[i] = rates[i] == 0 ? "跟随鼠标（每次上报都发送）" : "每秒 " + rates[i] + " 次";
+        return names;
+    }
+    /** Hand-edited profiles may hold a rate that is not in the list; show the nearest one. */
+    private static int rateIndex(int hz) {
+        int[] rates = cn.offline.mapper.engine.AimOptions.RATES; int best = 0;
+        for (int i = 1; i < rates.length; i++) if (hz > 0 && (best == 0 || Math.abs(rates[i] - hz) < Math.abs(rates[best] - hz))) best = i;
+        return best;
+    }
+    private static int optionalKey(EditText field) {
+        String text = field.getText().toString().trim();
+        return text.isEmpty() || text.equals("0") ? 0 : key(field);
     }
     private static double number(EditText field, double min, double max) {
         double result;
@@ -174,6 +220,45 @@ public final class EditorDialogs {
             input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
             input.setText(String.format(Locale.US, "%.3f", value).replaceAll("0+$", "").replaceAll("\\.$", ""));
             fields.addView(input, new LinearLayout.LayoutParams(-1, dp(48))); return input;
+        }
+        /** Slider for the usual range with a number field beside it for exact or larger values. */
+        EditText slider(String name, double value, double min, double max, double step) {
+            title(name);
+            LinearLayout line = Ui.row(context);
+            android.widget.SeekBar bar = new android.widget.SeekBar(context);
+            int steps = (int) Math.round((max - min) / step);
+            bar.setMax(steps);
+            bar.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            bar.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Ui.MUTED));
+            EditText input = input();
+            input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            input.setGravity(android.view.Gravity.CENTER);
+            input.setPadding(dp(4), 0, dp(4), 0);
+            input.setText(String.format(Locale.US, "%.2f", value).replaceAll("0+$", "").replaceAll("\\.$", ""));
+            bar.setProgress((int) Math.round((Math.max(min, Math.min(max, value)) - min) / step));
+            bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(android.widget.SeekBar seek, int progress, boolean fromUser) {
+                    if (!fromUser) return;
+                    input.setError(null);
+                    input.setText(String.format(Locale.US, "%.2f", min + progress * step).replaceAll("0+$", "").replaceAll("\\.$", ""));
+                }
+                public void onStartTrackingTouch(android.widget.SeekBar seek) { }
+                public void onStopTrackingTouch(android.widget.SeekBar seek) { }
+            });
+            input.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+                public void onTextChanged(CharSequence text, int start, int before, int count) { }
+                public void afterTextChanged(android.text.Editable text) {
+                    try {
+                        double typed = Double.parseDouble(text.toString().trim());
+                        bar.setProgress((int) Math.round((Math.max(min, Math.min(max, typed)) - min) / step));
+                    } catch (NumberFormatException incomplete) { /* Keep the slider where it is while the user is typing. */ }
+                }
+            });
+            line.addView(bar, new LinearLayout.LayoutParams(0, dp(48), 1));
+            line.addView(input, Ui.margins(context, new LinearLayout.LayoutParams(dp(76), dp(48)), 8, 0, 0, 0));
+            fields.addView(line, Ui.fill(-2)); return input;
         }
         EditText key(String name, int code) {
             title(name);

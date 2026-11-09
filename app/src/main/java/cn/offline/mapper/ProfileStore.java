@@ -31,7 +31,8 @@ public final class ProfileStore {
                     .put("customAngles",false).put("angleMin",-8).put("angleMax",8)
                     .put("radiusSwitchMode",0).put("radiusSwitchCode",56).put("radiusSwitchPercent",100)
                     .put("up",17).put("down",31).put("left",30).put("right",32));
-            p.put("aim",new JSONObject().put("enabled",true).put("x",0.65).put("y",0.50).put("radius",0.2).put("sensitivityX",1).put("sensitivityY",1).put("toggleCode",59).put("idleMs",80).put("invertY",false).put("lockOnStart",true));return p;
+            p.put("aim",new JSONObject().put("enabled",true).put("x",0.65).put("y",0.50).put("radius",0.2).put("sensitivityX",1).put("sensitivityY",1).put("toggleCode",59).put("idleMs",80).put("invertY",false).put("lockOnStart",true)
+                    .put("rateHz",0).put("scopeCode",0).put("scopeMode",0).put("scopeScale",0.6));return p;
         }catch(JSONException e){throw new IllegalStateException(e);}
     }
     public static JSONObject binding(int id,String type,int code,double x,double y){try{return new JSONObject().put("id",id).put("type",type).put("code",code).put("label",BindingKey.label(code)).put("x",x).put("y",y).put("endX",Math.min(0.98,x+0.12)).put("endY",y).put("duration",160).put("interval",100);}catch(JSONException e){throw new IllegalStateException(e);}}
@@ -44,7 +45,7 @@ public final class ProfileStore {
             for(String key:new String[]{"up","down","left","right"}){int code=j.optInt(key);checkCode(code);if(code==66||!codes.add(code))throw new IllegalArgumentException("摇杆按键重复或与点位冲突");}
             if(j.optInt("radiusSwitchMode",0)!=0){int code=j.optInt("radiusSwitchCode",-1);checkCode(code);if(code==66||!codes.add(code))throw new IllegalArgumentException("半径切换键与其他按键冲突");}
         }}
-        JSONObject a=p.optJSONObject("aim");if(a!=null){checkXY(a);range(a,"radius",0.02,0.45);range(a,"sensitivityX",0.05,30);range(a,"sensitivityY",0.05,30);range(a,"idleMs",0,2000);int code=a.optInt("toggleCode",59);checkCode(code);if(a.optBoolean("enabled")&&(code==66||!codes.add(code)))throw new IllegalArgumentException("视角切换键与其他按键冲突");}
+        JSONObject a=p.optJSONObject("aim");if(a!=null){checkXY(a);range(a,"radius",0.02,0.45);range(a,"sensitivityX",0.05,30);range(a,"sensitivityY",0.05,30);range(a,"idleMs",0,2000);cn.offline.mapper.engine.AimOptions.validate(a);int code=a.optInt("toggleCode",59);checkCode(code);if(a.optBoolean("enabled")&&(code==66||!codes.add(code)))throw new IllegalArgumentException("视角切换键与其他按键冲突");}
     }
     /** Profiles from 1.1.x lack lockOnStart; enable it so the mouse steers the view as soon as mapping starts. */
     static void migrateAim(JSONObject a){if(a!=null&&!a.has("lockOnStart"))try{a.put("lockOnStart",true);}catch(JSONException impossible){throw new IllegalStateException(impossible);}}

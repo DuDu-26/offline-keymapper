@@ -87,6 +87,31 @@ public final class EngineSelfTest {
         engine.key(1,59,1,3401);engine.key(1,59,0,3402);check(!engine.aimLocked()&&!touch.contains(31),"F1 still releases to the free pointer");
         engine.pause();check(!engine.aimLocked(),"pause clears the lock");
         System.out.println("PASS lock aim on start");
+        JSONObject rated=new JSONObject().put("enabled",true).put("x",.6).put("y",.5).put("radius",.2).put("lockOnStart",true)
+                .put("rateHz",100).put("scopeCode",273).put("scopeScale",.5);
+        engine.configure(new JSONObject().put("bindings",new JSONArray()).put("aim",rated),1000,600);engine.start();events.clear();
+        engine.mouse(4,0,6000);check(events.size()==2&&Math.abs(events.get(1).x[0]-604)<.01,"first movement is sent at once");
+        engine.mouse(3,0,6002);engine.mouse(3,0,6005);check(events.size()==2,"movement inside one send interval is held back");
+        engine.tick(6010);check(events.size()==3&&Math.abs(events.get(2).x[0]-610)<.01,"held-back movement is sent as one move with nothing lost");
+        engine.mouse(2,0,6012);engine.key(1,273,1,6013);
+        check(Math.abs(events.get(events.size()-1).x[0]-612)<.01,"pending movement is sent before a key");
+        engine.mouse(10,0,6030);check(Math.abs(events.get(events.size()-1).x[0]-617)<.01,"held scope key scales the sensitivity");
+        engine.key(1,273,0,6031);engine.mouse(10,0,6050);
+        check(Math.abs(events.get(events.size()-1).x[0]-627)<.01,"releasing the scope key restores the sensitivity");
+        engine.tick(6100);check(touch.contains(31),"aim touch stays down until the idle time");
+        engine.tick(6131);check(!touch.contains(31),"aim touch lifts after the idle time");
+        rated.put("scopeMode",1).put("rateHz",0);
+        engine.configure(new JSONObject().put("bindings",new JSONArray()).put("aim",rated),1000,600);engine.start();events.clear();
+        engine.mouse(10,0,7000);engine.key(1,273,1,7020);engine.key(1,273,0,7021);engine.mouse(10,0,7040);
+        check(Math.abs(events.get(events.size()-1).x[0]-615)<.01,"scope toggle stays on after release");
+        engine.key(1,273,1,7060);engine.key(1,273,0,7061);engine.mouse(10,0,7080);
+        check(Math.abs(events.get(events.size()-1).x[0]-625)<.01,"second press turns the scope sensitivity off");
+        engine.pause();
+        boolean rejected=false;
+        try{engine.configure(new JSONObject().put("bindings",new JSONArray()).put("aim",new JSONObject(rated.toString()).put("rateHz",20)),1000,600);}
+        catch(IllegalArgumentException expected){rejected=true;}
+        check(rejected,"send rate below 30 is rejected");
+        System.out.println("PASS aim send rate and scope sensitivity");
         engine.configure(new JSONObject().put("bindings",new JSONArray().put(binding(1,57,"hold"))),1000,600);engine.start();
         engine.key(1,57,1,4000);engine.key(2,57,1,4001);engine.key(1,57,0,4002);
         check(touch.contains(1),"same key on second keyboard remains held");engine.key(2,57,0,4003);
