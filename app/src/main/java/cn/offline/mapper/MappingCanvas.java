@@ -162,7 +162,10 @@ public final class MappingCanvas extends View {
         if (selected == id) { paint.setColor(Color.WHITE); paint.setStrokeWidth(density); canvas.drawCircle(x, y, radius + 5 * density, paint); }
         String title = entry.optString("label", BindingKey.label(entry.optInt("code", 57)));
         if (title.length() > 6) title = title.substring(0, 5) + "…";
-        label(canvas, title, x, y, Ui.TEXT);
+        paint.setTextSize(12 * density);
+        float fit = Math.min(1f, (radius * 2 - 10 * density) / Math.max(1f, paint.measureText(title)));
+        paint.setStyle(Paint.Style.FILL); paint.setTextSize(12 * density * fit); paint.setTextAlign(Paint.Align.CENTER); paint.setColor(Ui.TEXT);
+        canvas.drawText(title, x, y - (paint.ascent() + paint.descent()) / 2, paint);
         if (!preview) label(canvas, typeLabel(entry.optString("type")), x, y + 35 * density, Ui.MUTED);
     }
     public static String typeLabel(String type) {

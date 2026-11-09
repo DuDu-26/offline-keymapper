@@ -10,6 +10,7 @@ adb install -r -g "$APK"
 adb shell appops set $PKG SYSTEM_ALERT_WINDOW allow || true
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
+adb shell settings put secure immersive_mode_confirmations confirmed || true
 shot() { sleep "${2:-3}"; adb exec-out screencap -p > "$OUT/$1.png"; echo "captured $1"; }
 for tab in 0 1 2; do
   adb shell am start -S -W -n $PKG/.MainActivity --ei tab $tab >/dev/null
