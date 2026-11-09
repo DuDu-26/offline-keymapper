@@ -74,11 +74,17 @@ jobs:
       - name: Print screenshot thumbnails (base64, for remote review)
         if: always()
         run: |
-          mkdir -p build/thumbs
-          for f in build/screenshots/*.png; do
-            n=$(basename "$f" .png)
-            convert "$f" -resize 480x -quality 70 "build/thumbs/$n.jpg"
-            echo "=====BEGIN $n====="
-            base64 -w 2000 "build/thumbs/$n.jpg"
-            echo "=====END $n====="
-          done
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          import base64, glob, io, os
+          from PIL import Image
+          for f in sorted(glob.glob("build/screenshots/*.png")):
+              im = Image.open(f).convert("RGB")
+              im.thumbnail((480, 1100))
+              buf = io.BytesIO(); im.save(buf, "JPEG", quality=70)
+              data = base64.b64encode(buf.getvalue()).decode()
+              name = os.path.basename(f)[:-4]
+              print(f"=====BEGIN {name}=====")
+              for k in range(0, len(data), 2000): print(data[k:k + 2000])
+              print(f"=====END {name}=====")
+          PY
