@@ -22,7 +22,7 @@ import java.util.Locale;
 
 /** Settings dialogs use an overlay window so they remain available over the game. */
 public final class EditorDialogs {
-    private static final int TEXT = Color.rgb(233, 240, 234), MUTED = Color.rgb(155, 172, 158);
+    private static final int TEXT = Ui.TEXT, MUTED = Ui.MUTED;
     private interface Apply { void apply() throws Exception; }
     public static AlertDialog binding(Context context, JSONObject entry, Runnable changed) {
         Form form = new Form(context);
@@ -147,27 +147,36 @@ public final class EditorDialogs {
     private static final class Form {
         final Context context;
         final LinearLayout fields;
-        final ScrollView scroll;
-        final float density;
-        final TextView error;
         Form(Context context) {
-            this.context = new android.view.ContextThemeWrapper(context, android.R.style.Theme_Material_Dialog_Alert);
-            density = context.getResources().getDisplayMetrics().density;
-            fields = new LinearLayout(this.context); fields.setOrientation(LinearLayout.VERTICAL); fields.setPadding(dp(20), dp(8), dp(20), dp(12));
-            scroll = new ScrollView(this.context); scroll.setFillViewport(true); scroll.addView(fields);
-            error = new TextView(this.context); error.setTextColor(Color.rgb(255, 145, 145)); error.setTextSize(13);
+            this.context = new android.view.ContextThemeWrapper(context, android.R.style.Theme_Material_Dialog);
+            fields = new LinearLayout(this.context); fields.setOrientation(LinearLayout.VERTICAL);
         }
-        int dp(float n) { return Math.round(n * density); }
-        void note(String value) { TextView text = new TextView(context); text.setText(value); text.setTextColor(MUTED); text.setTextSize(13); text.setPadding(0, dp(5), 0, dp(12)); fields.addView(text); }
-        void title(String name) { TextView label = new TextView(context); label.setText(name); label.setTextColor(TEXT); label.setTextSize(13); label.setPadding(0, dp(10), 0, dp(3)); fields.addView(label); }
+        int dp(float n) { return Ui.dp(context, n); }
+        void note(String value) {
+            TextView text = Ui.text(context, value, 13, Ui.MUTED);
+            text.setBackground(Ui.shape(context, Ui.SURFACE_2, 12, 0)); text.setPadding(dp(12), dp(10), dp(12), dp(10));
+            fields.addView(text, Ui.margins(context, Ui.fill(-2), 0, 4, 0, 6));
+        }
+        void title(String name) {
+            TextView label = Ui.text(context, name, 13, Ui.MUTED);
+            fields.addView(label, Ui.margins(context, Ui.fill(-2), 2, 12, 0, 6));
+        }
+        private EditText input() {
+            EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true); input.setTextSize(15);
+            input.setHintTextColor(Ui.FAINT);
+            input.setBackground(Ui.shape(context, Ui.SURFACE_2, 12, Ui.STROKE)); input.setPadding(dp(14), 0, dp(14), 0);
+            return input;
+        }
         EditText number(String name, double value) {
-            title(name); EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true);
+            title(name); EditText input = input();
             input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
             input.setText(String.format(Locale.US, "%.3f", value).replaceAll("0+$", "").replaceAll("\\.$", ""));
             fields.addView(input, new LinearLayout.LayoutParams(-1, dp(48))); return input;
         }
         EditText key(String name, int code) {
-            title(name); EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true); input.setInputType(InputType.TYPE_CLASS_TEXT);
+            title(name);
+            LinearLayout line = Ui.row(context);
+            EditText input = input(); input.setInputType(InputType.TYPE_CLASS_TEXT);
             input.setText(BindingKey.label(code)); input.setHint("按实体键，或输入名称 / 键码"); input.setSelectAllOnFocus(true);
             input.setOnKeyListener((view, keyCode, event) -> {
                 if ((event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0) return false;
@@ -180,9 +189,10 @@ public final class EditorDialogs {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) { input.setText(BindingKey.label(linux)); input.selectAll(); }
                 return true;
             });
-            fields.addView(input, new LinearLayout.LayoutParams(-1, dp(48)));
+            line.addView(input, new LinearLayout.LayoutParams(0, dp(48), 1));
             Spinner picker = new Spinner(context); String[] labels = BindingKey.labels();
             ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item, labels); picker.setAdapter(adapter);
+            picker.setBackground(Ui.shape(context, Ui.SURFACE_3, 12, 0));
             int position = 0; for (int i = 0; i < labels.length; i++) if (BindingKey.codeFromLabel(labels[i]) == code) position = i;
             picker.setSelection(position); picker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 boolean ready;
@@ -191,41 +201,45 @@ public final class EditorDialogs {
                 }
                 public void onNothingSelected(android.widget.AdapterView<?> parent) { }
             });
-            fields.addView(picker, new LinearLayout.LayoutParams(-1, dp(44))); return input;
+            picker.setContentDescription("从列表选择按键");
+            line.addView(picker, Ui.margins(context, new LinearLayout.LayoutParams(dp(112), dp(48)), 8, 0, 0, 0));
+            fields.addView(line, Ui.fill(-2)); return input;
         }
-        Spinner spinner(String name, String[] options) { title(name); Spinner spinner = new Spinner(context); spinner.setAdapter(new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item, options)); fields.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48))); return spinner; }
-        CheckBox check(String name, boolean checked) { CheckBox box = new CheckBox(context); box.setText(name); box.setTextColor(TEXT); box.setChecked(checked); fields.addView(box); return box; }
+        Spinner spinner(String name, String[] options) {
+            title(name); Spinner spinner = new Spinner(context);
+            spinner.setAdapter(new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item, options));
+            spinner.setBackground(Ui.shape(context, Ui.SURFACE_2, 12, Ui.STROKE));
+            fields.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48))); return spinner;
+        }
+        CheckBox check(String name, boolean checked) {
+            CheckBox box = new CheckBox(context); box.setText(name); box.setTextColor(TEXT); box.setTextSize(15); box.setChecked(checked);
+            box.setButtonTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            fields.addView(box, Ui.margins(context, Ui.fill(dp(48)), 0, 6, 0, 0)); return box;
+        }
         AlertDialog show(String title, Apply apply) {
-            fields.addView(error);
-            AlertDialog dialog = new AlertDialog.Builder(context).setTitle(title).setView(scroll).setPositiveButton("应用", null).setNegativeButton("取消", null).create();
-            Window window = dialog.getWindow();
-            if (window != null) { window.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY); window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); }
+            Sheet sheet = new Sheet(context, title, null, true);
+            sheet.body.addView(fields, Ui.fill(-2));
+            sheet.action("取消", Ui.Kind.GHOST, null).action("应用", Ui.Kind.PRIMARY, apply::apply);
+            AlertDialog dialog = sheet.dialog;
             dialog.setOnKeyListener((d, keyCode, event) -> {
                 if (keyCode == KeyEvent.KEYCODE_F8) { if (event.getAction() == KeyEvent.ACTION_DOWN) RootBridge.get(context).pauseMapping(); return true; } return false;
             });
-            dialog.setOnShowListener(d -> {
-                Window w = dialog.getWindow();
-                if (w != null) {
-                    GradientDrawable background = new GradientDrawable(); background.setColor(Color.rgb(31, 32, 34)); background.setCornerRadius(dp(20)); w.setBackgroundDrawable(background);
-                    android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-                    int dialogWidth = Math.min(dp(430), metrics.widthPixels - dp(24));
-                    w.setLayout(dialogWidth, Math.min(dp(650), metrics.heightPixels - dp(40)));
-                    // Overlay dialogs keep their requested height when the IME opens; cap it
-                    // to the visible display frame so the Apply/Cancel buttons stay reachable.
-                    w.getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-                        android.graphics.Rect available = new android.graphics.Rect();
-                        w.getDecorView().getWindowVisibleDisplayFrame(available);
-                        int height = Math.min(dp(650), Math.max(dp(180), available.height() - dp(32)));
-                        if (available.height() > 0 && w.getAttributes().height != height) w.setLayout(dialogWidth, height);
-                    });
-                }
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.rgb(68, 214, 44));
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                    try { apply.apply(); dialog.dismiss(); }
-                    catch (Exception problem) { error.setText(problem.getMessage() == null ? "设置无效" : problem.getMessage()); }
+            sheet.show();
+            Window w = dialog.getWindow();
+            if (w != null) {
+                android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+                int dialogWidth = Math.min(dp(440), metrics.widthPixels - dp(24));
+                w.setLayout(dialogWidth, Math.min(dp(650), metrics.heightPixels - dp(40)));
+                // Overlay dialogs keep their requested height when the IME opens; cap it
+                // to the visible display frame so the action buttons stay reachable.
+                w.getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+                    android.graphics.Rect available = new android.graphics.Rect();
+                    w.getDecorView().getWindowVisibleDisplayFrame(available);
+                    int height = Math.min(dp(650), Math.max(dp(180), available.height() - dp(32)));
+                    if (available.height() > 0 && w.getAttributes().height != height) w.setLayout(dialogWidth, height);
                 });
-            });
-            dialog.show(); return dialog;
+            }
+            return dialog;
         }
     }
     private EditorDialogs() { }

@@ -43,7 +43,7 @@ public final class OverlayService extends Service implements RootBridge.Listener
     private static final String ACTION_PAUSE = "cn.offline.mapper.PAUSE";
     private static final String CHANNEL = "mapping-session";
     private static final int NOTIFICATION_ID = 7;
-    private static final int ACCENT = Color.rgb(68, 214, 44);
+    private static final int ACCENT = Ui.ACCENT;
     private WindowManager manager;
     private RootBridge bridge;
     private TextView ball, selectionText;
@@ -166,33 +166,37 @@ public final class OverlayService extends Service implements RootBridge.Listener
         boolean running = bridge.running();
         if (ballAppearanceReady && ballRenderedRunning == running) return;
         ballAppearanceReady = true; ballRenderedRunning = running;
-        ball.setText(running ? "运行" : "映射"); ball.setTextColor(running ? Color.rgb(7, 9, 11) : ACCENT);
-        ball.setBackground(background(running ? ACCENT : Color.argb(238, 22, 28, 24), ACCENT, 26));
+        ball.setText("");
+        Icon icon = new Icon(this, running ? Icon.PAUSE : Icon.GAMEPAD, running ? Color.WHITE : Ui.TEXT);
+        icon.setBounds(0, 0, dp(24), dp(24)); ball.setCompoundDrawables(null, icon, null, null);
+        ball.setPadding(0, 0, 0, 0); ball.setTextSize(1); ball.setIncludeFontPadding(false); ball.setCompoundDrawablePadding(0);
+        GradientDrawable shape = new GradientDrawable(); shape.setShape(GradientDrawable.OVAL);
+        shape.setColor(running ? Ui.SUCCESS : Color.argb(235, 20, 24, 33));
+        shape.setStroke(dp(2), running ? Color.argb(120, 255, 255, 255) : ACCENT);
+        ball.setBackground(shape);
     }
     private void removeBall() { if (ball != null) { remove(ball); ball = null; } ballAppearanceReady = false; }
     private void showMenu() {
         dismissDialog();
-        Context themed = new android.view.ContextThemeWrapper(this, android.R.style.Theme_Material_Dialog_Alert);
-        LinearLayout menu = new LinearLayout(themed); menu.setOrientation(LinearLayout.VERTICAL); menu.setPadding(dp(18), dp(12), dp(18), dp(12));
-        TextView title = new TextView(themed); title.setText(ProfileStore.current(this).optString("name", "当前配置")); title.setTextColor(Color.WHITE); title.setTextSize(18); menu.addView(title);
-        TextView status = new TextView(themed); status.setText(bridge.status() + "\nF8 紧急暂停 · 所有配置保存在本机"); status.setTextColor(Color.rgb(170, 181, 171)); status.setTextSize(12); status.setPadding(0, dp(8), 0, dp(10)); menu.addView(status);
-        menuButton(menu, bridge.running() ? "暂停映射" : "开始映射", () -> { if (bridge.running()) bridge.pauseMapping(); else startMapping(); });
-        menuButton(menu, "编辑屏幕点位", this::openEditor);
-        menuButton(menu, "回到主界面", () -> startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)));
-        menuButton(menu, "退出悬浮球和映射", () -> { bridge.stop(); stopSelf(); });
-        dialog = new AlertDialog.Builder(themed).setView(menu).create(); dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        boolean running = bridge.running();
+        Sheet sheet = new Sheet(this, ProfileStore.current(this).optString("name", "当前配置"), bridge.status() + " · F8 紧急暂停", true);
+        sheet.item(running ? Icon.PAUSE : Icon.PLAY, running ? Ui.WARN : Ui.SUCCESS, running ? "暂停映射" : "开始映射", running ? "键鼠恢复普通输入" : "按当前布局接管键鼠",
+                () -> { if (bridge.running()) bridge.pauseMapping(); else startMapping(); });
+        sheet.item(Icon.EDIT, ACCENT, "编辑屏幕点位", "拖动摇杆、视角和按键位置", this::openEditor);
+        sheet.item(Icon.HOME, ACCENT, "回到主界面", null,
+                () -> startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)));
+        sheet.item(Icon.POWER, Ui.DANGER, "退出悬浮球和映射", "停止服务并释放键鼠", () -> { bridge.stop(); stopSelf(); });
+        dialog = sheet.dialog;
         dialog.setOnKeyListener((d, keyCode, event) -> { if (keyCode == KeyEvent.KEYCODE_F8) { if (event.getAction() == KeyEvent.ACTION_DOWN) bridge.pauseMapping(); return true; } return false; });
-        dialog.show(); dialog.getWindow().setBackgroundDrawable(background(Color.rgb(31, 32, 34), 0, 20));
-        dialog.getWindow().setLayout(Math.min(dp(340), screen().x - dp(24)), -2);
+        sheet.show();
+        dialog.getWindow().setLayout(Math.min(dp(360), screen().x - dp(24)), -2);
         dialog.setOnDismissListener(d -> refreshCursor()); refreshCursor();
     }
-    private void menuButton(LinearLayout parent, String title, Runnable action) {
-        Button button = button(title); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(48)); lp.topMargin = dp(6); parent.addView(button, lp);
-        button.setOnClickListener(v -> { dismissDialog(); action.run(); });
-    }
     private Button button(String title) {
-        Button button = new Button(this); button.setText(title); button.setTextSize(13); button.setTextColor(ACCENT); button.setAllCaps(false);
-        button.setMinWidth(0); button.setMinimumWidth(0); button.setPadding(dp(14), 0, dp(14), 0); button.setBackground(background(Color.rgb(37, 43, 38), Color.rgb(54, 75, 55), 12)); return button;
+        Button button = new Button(this); button.setText(title); button.setTextSize(13); button.setTextColor(Ui.TEXT); button.setAllCaps(false);
+        button.setStateListAnimator(null);
+        button.setMinWidth(0); button.setMinimumWidth(0); button.setMinHeight(0); button.setMinimumHeight(0);
+        button.setPadding(dp(14), 0, dp(14), 0); button.setBackground(Ui.pressable(this, Ui.SURFACE_3, 12, 0)); return button;
     }
     private void openEditor() {
         if (editor != null) return;
@@ -201,20 +205,23 @@ public final class OverlayService extends Service implements RootBridge.Listener
         catch (JSONException problem) { toast("无法读取配置"); showBall(); return; }
         editor = new FrameLayout(this); editor.setFocusableInTouchMode(true);
         canvas = new MappingCanvas(this, working); editor.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setPadding(dp(10), dp(8), dp(10), dp(8)); panel.setBackground(background(Color.argb(238, 22, 25, 23), Color.argb(170, 68, 90, 70), 16));
+        LinearLayout panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setPadding(dp(12), dp(10), dp(12), dp(10)); panel.setBackground(background(Color.argb(240, 20, 24, 33), Ui.STROKE, 18)); panel.setElevation(dp(6));
         LinearLayout header = new LinearLayout(this); header.setGravity(Gravity.CENTER_VERTICAL); panel.addView(header, new LinearLayout.LayoutParams(-1, dp(38)));
-        selectionText = new TextView(this); selectionText.setTextColor(Color.WHITE); selectionText.setTextSize(12); selectionText.setSingleLine(true); selectionText.setEllipsize(android.text.TextUtils.TruncateAt.END); selectionText.setPadding(dp(6), 0, dp(6), 0);
+        selectionText = new TextView(this); selectionText.setTextColor(Ui.TEXT); selectionText.setTextSize(13); selectionText.setSingleLine(true); selectionText.setEllipsize(android.text.TextUtils.TruncateAt.END); selectionText.setPadding(dp(6), 0, dp(6), 0);
         header.addView(selectionText, new LinearLayout.LayoutParams(0, -2, 1));
-        tool(header, "取消", this::cancelEditor);
-        Button save = tool(header, "完成保存", this::saveEditor); save.setTextColor(Color.rgb(7, 9, 11)); save.setBackground(background(ACCENT, 0, 11));
+        Button cancel = tool(header, "取消", this::cancelEditor); cancel.setBackground(Ui.pressable(this, Color.TRANSPARENT, 12, Ui.STROKE));
+        Button save = tool(header, "保存", this::saveEditor); save.setTextColor(Color.WHITE); save.setBackground(Ui.pressable(this, ACCENT, 12, 0));
+        withIcon(save, Icon.CHECK, Color.WHITE);
         HorizontalScrollView scroller = new HorizontalScrollView(this); scroller.setHorizontalScrollBarEnabled(false);
-        LinearLayout tools = new LinearLayout(this); scroller.addView(tools); panel.addView(scroller, new LinearLayout.LayoutParams(-1, dp(42)));
-        tool(tools, "＋按键", () -> canvas.addBinding());
-        tool(tools, "方向摇杆", () -> editArea(MappingCanvas.JOYSTICK));
-        tool(tools, "鼠标视角", () -> editArea(MappingCanvas.AIM));
-        tool(tools, "设置", () -> editSelection(canvas.selected()));
-        tool(tools, "删除", () -> { if (canvas.selected() == MappingCanvas.NONE) toast("先选择点位"); else canvas.removeSelected(); });
+        LinearLayout tools = new LinearLayout(this); scroller.addView(tools); LinearLayout.LayoutParams scrollerParams = new LinearLayout.LayoutParams(-1, dp(40)); scrollerParams.topMargin = dp(8); panel.addView(scroller, scrollerParams);
+        withIcon(tool(tools, "按键", () -> canvas.addBinding()), Icon.PLUS, Ui.TEXT);
+        withIcon(tool(tools, "方向摇杆", () -> editArea(MappingCanvas.JOYSTICK)), Icon.JOYSTICK, Ui.TEXT);
+        withIcon(tool(tools, "鼠标视角", () -> editArea(MappingCanvas.AIM)), Icon.TARGET, Ui.TEXT);
+        withIcon(tool(tools, "设置", () -> editSelection(canvas.selected())), Icon.SETTINGS, Ui.TEXT);
+        Button delete = tool(tools, "删除", () -> { if (canvas.selected() == MappingCanvas.NONE) toast("先选择点位"); else canvas.removeSelected(); });
+        delete.setTextColor(Ui.DANGER); withIcon(delete, Icon.TRASH, Ui.DANGER);
         Button preview = tool(tools, "预览", () -> { canvas.setPreview(!canvas.isPreview()); updateSelection(); });
+        withIcon(preview, Icon.EYE, Ui.TEXT);
         preview.setOnClickListener(v -> { canvas.setPreview(!canvas.isPreview()); preview.setText(canvas.isPreview() ? "退出预览" : "预览"); updateSelection(); });
 
         FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); panelParams.leftMargin = dp(12); panelParams.rightMargin = dp(12); panelParams.topMargin = dp(36);
@@ -245,8 +252,12 @@ public final class OverlayService extends Service implements RootBridge.Listener
         try { manager.addView(editor, params); editor.requestFocus(); updateSelection(); }
         catch (RuntimeException problem) { editor = null; canvas = null; working = null; toast("无法打开编辑器：" + problem.getMessage()); showBall(); }
     }
+    private void withIcon(Button button, int icon, int color) {
+        Icon drawable = new Icon(this, icon, color); drawable.setBounds(0, 0, dp(18), dp(18));
+        button.setCompoundDrawables(drawable, null, null, null); button.setCompoundDrawablePadding(dp(6));
+    }
     private Button tool(LinearLayout tools, String title, Runnable action) {
-        Button button = button(title); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -1); lp.rightMargin = dp(6); tools.addView(button, lp); button.setOnClickListener(v -> action.run()); return button;
+        Button button = button(title); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(38)); lp.leftMargin = dp(6); tools.addView(button, lp); button.setOnClickListener(v -> action.run()); return button;
     }
     private void updateSelection() {
         if (selectionText == null || canvas == null) return;
