@@ -71,3 +71,14 @@ jobs:
         with:
           name: ui-screenshots
           path: build/screenshots/*.png
+      - name: Print screenshot thumbnails (base64, for remote review)
+        if: always()
+        run: |
+          mkdir -p build/thumbs
+          for f in build/screenshots/*.png; do
+            n=$(basename "$f" .png)
+            convert "$f" -resize 480x -quality 70 "build/thumbs/$n.jpg"
+            echo "=====BEGIN $n====="
+            base64 -w 2000 "build/thumbs/$n.jpg"
+            echo "=====END $n====="
+          done
