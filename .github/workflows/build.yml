@@ -16,17 +16,17 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Download Gradle (retry on network errors)
+      - name: Install Gradle (curl with retries; the wrapper download is flaky)
         run: |
-          for attempt in 1 2 3; do
-            ./gradlew --version && exit 0
-            echo "Gradle download failed (attempt $attempt), retrying"; sleep $((attempt * 15))
-          done
-          exit 1
+          VERSION=$(sed -n 's/.*gradle-\([0-9.]*\)-bin.zip/\1/p' gradle/wrapper/gradle-wrapper.properties)
+          curl -fsSL --retry 8 --retry-all-errors --retry-delay 10 --connect-timeout 30 \
+            -o "$RUNNER_TEMP/gradle.zip" "https://services.gradle.org/distributions/gradle-$VERSION-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP/ci-gradle"
+          echo "$RUNNER_TEMP/ci-gradle/gradle-$VERSION/bin" >> "$GITHUB_PATH"
       - name: Trajectory tests
         run: ./scripts/test-trajectory.sh
       - name: Build debug APK and lint
-        run: ./gradlew :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest
+        run: gradle :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest
       - uses: actions/upload-artifact@v4
         with:
           name: offline-mapper-debug-apk
