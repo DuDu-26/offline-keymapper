@@ -183,7 +183,6 @@ public final class RootDaemon {
                         if(type==1) {
                             motion.flush(now);
                             eventCount++;lastCode=code;
-                            send(new JSONObject().put("type","key").put("code",code).put("value",value));
                             if(code==114||code==115||code==116)passSystemKey(code,value);
                             else if(code==272 && (!engine.hasBinding(code)||engine.freePointerButtons())) {
                                 if(!engine.aimLocked())cursor.key(code,value);

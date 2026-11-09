@@ -22,6 +22,9 @@ final class TouchInjector implements TouchSink {
     private long downTime;
     private long eventTime;
     private final Random sizeRandom = new Random();
+    // Reused for every event: the framework copies these into the MotionEvent, so no per-event garbage.
+    private final MotionEvent.PointerProperties[][] propertyPool = new MotionEvent.PointerProperties[11][];
+    private final MotionEvent.PointerCoords[][] coordPool = new MotionEvent.PointerCoords[11][];
 
     TouchInjector() throws Exception {
         testSink=null;
@@ -81,16 +84,23 @@ final class TouchInjector implements TouchSink {
         if(Boolean.FALSE.equals(result))throw new IllegalStateException("系统拒绝输入注入");
     }
     private void emit(int action) throws Exception {
-        MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[points.size()];
-        MotionEvent.PointerCoords[] coordinates = new MotionEvent.PointerCoords[points.size()];
-        for (int i = 0; i < points.size(); i++) {
+        int count = points.size();
+        if (propertyPool[count] == null) {
+            propertyPool[count] = new MotionEvent.PointerProperties[count];
+            coordPool[count] = new MotionEvent.PointerCoords[count];
+            for (int i = 0; i < count; i++) {
+                propertyPool[count][i] = new MotionEvent.PointerProperties();
+                propertyPool[count][i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+                coordPool[count][i] = new MotionEvent.PointerCoords();
+                coordPool[count][i].pressure = 1f;
+            }
+        }
+        MotionEvent.PointerProperties[] properties = propertyPool[count];
+        MotionEvent.PointerCoords[] coordinates = coordPool[count];
+        for (int i = 0; i < count; i++) {
             Point p = points.get(i);
-            properties[i] = new MotionEvent.PointerProperties();
-            properties[i].id = p.pointerId; properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
-            coordinates[i] = new MotionEvent.PointerCoords();
-            coordinates[i].x = p.x; coordinates[i].y = p.y;
-            coordinates[i].pressure = 1f;
-            coordinates[i].size = points.get(i).size;
+            properties[i].id = p.pointerId;
+            coordinates[i].x = p.x; coordinates[i].y = p.y; coordinates[i].size = p.size;
         }
         eventTime = Math.max(eventTime, SystemClock.uptimeMillis());
         MotionEvent event = MotionEvent.obtain(downTime, eventTime, action, points.size(),

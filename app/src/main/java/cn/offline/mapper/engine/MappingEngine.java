@@ -21,13 +21,17 @@ final class MappingEngine {
     private JoystickController joystickController;
     private boolean running, aimLocked;
     private float aimX,aimY;
+    // Aim and joystick settings are read once per configure(); the input loop must not parse JSON per event.
+    private boolean aimEnabled,aimLockOnStart,aimInvertY;
+    private int aimToggle=59,aimIdle=80,joyUp=17,joyDown=31,joyLeft=30,joyRight=32,joyRadiusMode,joyRadiusCode=-1;
+    private float aimCenterX,aimCenterY,aimRadius,aimSensX=1,aimSensY=1;
     private long lastAim;
 
     MappingEngine(TouchSink touch) { this.touch=touch; }
     boolean running() { return running; }
     boolean aimLocked() { return aimLocked; }
     boolean hasBinding(int code) { for(Binding b:bindings)if(b.code==code)return true;return false; }
-    boolean freePointerButtons() { return aim.optBoolean("enabled",false) && !aimLocked; }
+    boolean freePointerButtons() { return aimEnabled && !aimLocked; }
     void configure(JSONObject profile, int width, int height) throws Exception {
         if (width<1 || height<1 || width>16384 || height>16384) throw new IllegalArgumentException("屏幕尺寸无效");
         ArrayList<Binding> parsed=new ArrayList<>();
@@ -68,6 +72,13 @@ final class MappingEngine {
         joystick=nextJoy==null?new JSONObject():nextJoy; aim=nextAim==null?new JSONObject():nextAim;
         if(joystickController!=null)joystickController.close();
         joystickController=joystick.optBoolean("enabled",false)?new JoystickController(touch,joystick,width,height):null;
+        aimEnabled=aim.optBoolean("enabled",false);aimLockOnStart=aim.optBoolean("lockOnStart",false);aimInvertY=aim.optBoolean("invertY",false);
+        aimToggle=aim.optInt("toggleCode",59);aimIdle=bounded(aim.optInt("idleMs",80),0,2000);
+        aimCenterX=clampX((float)aim.optDouble("x",.65)*width);aimCenterY=clampY((float)aim.optDouble("y",.5)*height);
+        aimRadius=(float)aim.optDouble("radius",.2)*Math.min(width,height);
+        aimSensX=(float)aim.optDouble("sensitivityX",1);aimSensY=(float)aim.optDouble("sensitivityY",1);
+        joyUp=joystick.optInt("up",17);joyDown=joystick.optInt("down",31);joyLeft=joystick.optInt("left",30);joyRight=joystick.optInt("right",32);
+        joyRadiusMode=joystick.optInt("radiusSwitchMode",0);joyRadiusCode=joystick.optInt("radiusSwitchCode",-1);
     }
     private static void validateRegion(JSONObject value) {
         if(value==null)return;
@@ -88,7 +99,7 @@ final class MappingEngine {
     void start() {
         running=true;
         // FPS layouts usually want the mouse to steer the view immediately; F1 still toggles the free pointer.
-        if(aim.optBoolean("enabled",false)&&aim.optBoolean("lockOnStart",false))aimLocked=true;
+        if(aimEnabled&&aimLockOnStart)aimLocked=true;
     }
     void pause() throws Exception {
         running=false; aimLocked=false; pressed.clear();
@@ -110,7 +121,7 @@ final class MappingEngine {
         if(deviceKeys==null){deviceKeys=new HashSet<>();pressed.put(device,deviceKeys);}
         if(value!=0)deviceKeys.add(code);else deviceKeys.remove(code);
         boolean after=held(code); if(before==after)return;
-        if(aim.optBoolean("enabled",false) && code==aim.optInt("toggleCode",59) && after) {
+        if(aimEnabled && code==aimToggle && after) {
             aimLocked=!aimLocked;
             if(!aimLocked)touch.up(31);
             for(Binding b:bindings)if(MouseCursor.button(b.code)!=0) {
@@ -141,18 +152,15 @@ final class MappingEngine {
     }
     private void updateJoystick(int code,boolean down) throws Exception {
         if(joystickController==null)return;
-        if(code==joystick.optInt("up",17)||code==joystick.optInt("down",31)||code==joystick.optInt("left",30)||code==joystick.optInt("right",32))
-            joystickController.direction(held(joystick.optInt("up",17)),held(joystick.optInt("down",31)),
-                    held(joystick.optInt("left",30)),held(joystick.optInt("right",32)));
-        if(joystick.optInt("radiusSwitchMode",0)!=0 && code==joystick.optInt("radiusSwitchCode",-1))joystickController.radiusKey(down);
+        if(code==joyUp||code==joyDown||code==joyLeft||code==joyRight)
+            joystickController.direction(held(joyUp),held(joyDown),held(joyLeft),held(joyRight));
+        if(joyRadiusMode!=0 && code==joyRadiusCode)joystickController.radiusKey(down);
     }
     void mouse(float dx,float dy,long now) throws Exception {
         if(!running||!aimLocked||(dx==0&&dy==0))return;
-        float centerX=clampX((float)aim.optDouble("x",.65)*width),centerY=clampY((float)aim.optDouble("y",.5)*height);
-        float radius=(float)aim.optDouble("radius",.2)*Math.min(width,height);
+        float centerX=aimCenterX,centerY=aimCenterY,radius=aimRadius;
         if(!touch.contains(31)){aimX=centerX;aimY=centerY;touch.down(31,aimX,aimY);}
-        float stepX=dx*(float)aim.optDouble("sensitivityX",1);
-        float stepY=dy*(float)aim.optDouble("sensitivityY",1)*(aim.optBoolean("invertY",false)?-1:1);
+        float stepX=dx*aimSensX,stepY=dy*aimSensY*(aimInvertY?-1:1);
         float nextX=aimX+stepX,nextY=aimY+stepY;
         if(Math.hypot(nextX-centerX,nextY-centerY)>radius) {
             // Lift and recenter at a stroke boundary so unlimited mouse travel remains possible.
@@ -178,7 +186,7 @@ final class MappingEngine {
                 }
             } else if(b.due>0 && now>=b.due) {touch.up(b.id);b.due=0;}
         }
-        int idle=bounded(aim.optInt("idleMs",80),0,2000);
+        int idle=aimIdle;
         if(idle>0 && touch.contains(31) && now-lastAim>=idle)touch.up(31);
     }
     private float clampX(float value){return Math.max(0,Math.min(width-1,value));}

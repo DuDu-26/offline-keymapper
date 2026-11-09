@@ -53,6 +53,9 @@ public class TouchLabActivity extends Activity {
         private final ArrayList<Trail> fading = new ArrayList<>();
         private String last = "等待输入";
         private int maxPointers, count;
+        private long lastLogWrite;
+        private boolean logPending;
+        private final Runnable flushLog = this::writeLog;
 
         Lab() {
             super(TouchLabActivity.this);
@@ -178,6 +181,16 @@ public class TouchLabActivity extends Activity {
                 row.put("pointers", p);
                 history.put(row);
                 if (history.length() > 300) history.remove(0);
+            } catch (Exception ignored) {}
+            // Writing the log on every touch event stalls the UI thread; write at most every 250 ms.
+            long now = SystemClock.uptimeMillis();
+            if (now - lastLogWrite >= 250) writeLog();
+            else if (!logPending) { logPending = true; postDelayed(flushLog, 250 - (now - lastLogWrite)); }
+        }
+
+        private void writeLog() {
+            logPending = false; removeCallbacks(flushLog); lastLogWrite = SystemClock.uptimeMillis();
+            try {
                 JSONObject report = new JSONObject().put("events", count).put("maxPointers", maxPointers).put("active", live.size()).put("history", history);
                 try (FileOutputStream out = openFileOutput("touch-lab.json", MODE_PRIVATE)) { out.write(report.toString().getBytes(StandardCharsets.UTF_8)); }
             } catch (Exception ignored) {}

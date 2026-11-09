@@ -84,19 +84,6 @@ public final class JoystickTrajectory {
         }
     }
 
-    /**
-     * Advances a critically damped spring by {@code dt} seconds toward {@code goal}.
-     * Exact closed-form step, stable for any dt. Returns {position, velocity}.
-     */
-    static float[] spring(float position, float velocity, float goal, float omega, float dt) {
-        float offset = position - goal;
-        float decay = (float) Math.exp(-omega * dt);
-        float term = (velocity + omega * offset) * dt;
-        float nextVelocity = (velocity - omega * term) * decay;
-        float nextOffset = (offset + term) * decay;
-        return new float[] {goal + nextOffset, nextVelocity};
-    }
-
     /** One direction hold. Runs until interrupted, or until settled for non-drifting styles. */
     public static final class Motion implements Runnable {
         private final State state; private final int pointerId;
@@ -162,10 +149,12 @@ public final class JoystickTrajectory {
                         goalX += driftX.advance(ms) * params.wobblePx;
                         goalY += driftY.advance(ms) * params.wobblePx;
                     }
-                    float[] sx = spring(state.x, state.vx, goalX, omega, dt);
-                    float[] sy = spring(state.y, state.vy, goalY, omega, dt);
-                    state.x = clamp(sx[0], minX, maxX); state.vx = sx[1];
-                    state.y = clamp(sy[0], minY, maxY); state.vy = sy[1];
+                    // Critically damped spring, exact closed-form step: stable for any dt, no allocation per frame.
+                    float decay = (float) Math.exp(-omega * dt);
+                    float offX = state.x - goalX, termX = (state.vx + omega * offX) * dt;
+                    float offY = state.y - goalY, termY = (state.vy + omega * offY) * dt;
+                    state.vx = (state.vx - omega * termX) * decay; state.x = clamp(goalX + (offX + termX) * decay, minX, maxX);
+                    state.vy = (state.vy - omega * termY) * decay; state.y = clamp(goalY + (offY + termY) * decay, minY, maxY);
                     boolean settled = driftX == null && Math.abs(state.x - goalX) < 0.5f && Math.abs(state.y - goalY) < 0.5f
                             && Math.abs(state.vx) < 5 && Math.abs(state.vy) < 5;
                     if (settled) { state.x = goalX; state.y = goalY; state.vx = state.vy = 0; }
