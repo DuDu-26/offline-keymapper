@@ -1,63 +1,55 @@
 # 离线键鼠映射 · Root 本地版
 
-本项目根据酷凡游戏厅 26.1.17 的 REA 静态及隔离运行调研，独立实现本地键鼠映射。运行不需要账号、网络、激活码或 Shizuku。Android 9 及以上；需要手机已 Root 并在 SU 管理器授权。
+在已 Root 的 Android 手机上，把 USB / 蓝牙键盘鼠标映射成屏幕触控，用来玩手游。完全本地运行，不需要账号、网络或激活码。要求 Android 9 及以上，并在 Magisk / KernelSU / APatch 中授权本应用 Root。
 
-**当前交付是核心映射验收版，不能视为原软件全部功能的完整复刻。** 云配置、图像识别、压枪、手搓、复杂宏、原分享码格式、直接向触屏驱动写入的系统级触摸通路未实现。WASD 坐标生成器已从原软件自然加载的业务 DEX 恢复，已执行原字节码与新版逐点对比；未修改原 APK 或原账户授权。Root 激活已在实机验证；1.1.4 练习场测试用户反馈暂未再断开，游戏内长期稳定性仍待验收。
-
-1.1.1 修复部分 Android 16 / SukiSU 环境下 Root 已授权却启动超时的问题：由 Root 引擎主动回连应用，保留双向UID与随机token验证。Root激活与停止后重新激活已在真机确认；详见 [Root启动兼容性](docs/reports/Root启动兼容性.md)。
-
-1.1.4 将底层采集与触控处理分离：专用高优先级线程持续读取、有界缓冲与位移合并、保留独占；自由指针采用触控点击和按屏幕节奏合帧更新。用户已完成一轮练习场键鼠测试，反馈暂未再断开。全部公开逆向分析见 [分析资料](analysis/README.md)，可安装 APK 见 [v1.1.4](https://github.com/DuDu-26/offline-keymapper/releases/tag/v1.1.4)。
+当前状态：核心映射可用，练习场测试正常；具体游戏中的兼容性和长时间稳定性仍在验证。
 
 ## 使用
 
-1. 安装 `outputs/离线键鼠映射-v1.1.4-root.apk`。
-2. 连接 USB OTG 或蓝牙键盘、鼠标。在 Magisk / KernelSU / APatch 允许本应用 Root。
-3. 在应用内激活 Root 服务并允许悬浮窗。
-4. 添加已安装游戏，进入游戏后点击悬浮球编辑。将摇杆、鼠标视角区域和按键点位拖到游戏实际操作区域，保存。
-5. 点击悬浮球“开始映射”；默认 **F1** 切换自由鼠标 / 锁定视角，**F8** 紧急暂停并释放键鼠。
-6. 退出悬浮球和映射后恢复普通输入。重启手机后重新激活。
+1. 从 [Releases](https://github.com/DuDu-26/offline-keymapper/releases) 或 GitHub Actions 构建产物下载 APK 并安装。
+2. 连接 USB OTG 或蓝牙键盘、鼠标，在 SU 管理器中允许本应用 Root。
+3. 在应用内激活 Root 服务，并允许悬浮窗。
+4. 添加已安装的游戏，进入游戏后点击悬浮球编辑：把摇杆、鼠标视角区域和按键点位拖到游戏的实际操作区域，然后保存。
+5. 点击悬浮球“开始映射”。默认 **F1** 切换自由鼠标 / 锁定视角，**F8** 紧急暂停并释放键鼠。
+6. 关闭悬浮球和映射后，键鼠恢复普通输入。手机重启后需要重新激活。
 
-可先使用内置“触控练习场”，验证 WASD + 左键 + 空格的同时触控，再进入实际游戏。点位使用全屏比例坐标；横竖屏或分辨率改变后须检查实际点位。
+建议先在内置“触控练习场”里验证 WASD + 左键 + 空格的多指触控，再进入游戏。点位按全屏比例保存；横竖屏或分辨率改变后需要检查点位。
 
-## 已实现
+## 功能
 
-- 本机 SU 请求、UID/token 验证的抽象 Unix socket、Root app_process 服务。
-- USB / 蓝牙 evdev 输入识别、EVIOCGRAB 独占；排除触屏与独立电源/音量节点。
-- 按住、单击、切换按住、连点、定时滑动；最多 20 个配置点位，最多 10 个同时触点。
-- WASD / 自定义方向摇杆：原版普通、半摇感、全摇感轨迹，初始触点偏移、五类曲线、持续扰动、半径长按/切换、自定义终点偏角；算法与原参数可在设置中展开查看。
-- 鼠标 FPS 相对位移、水平/垂直灵敏度、反转 Y、闲置释放、边缘释放重定位。
-- 自绘自由指针、左键转触控点击与拖动；右键/侧键/滚轮按配置执行，锁定视角后执行鼠标映射。
-- 滚轮可绑定点击/滑动，鼠标左右中键和侧键可绑定。
-- 游戏列表、多个本地配置、复制/重命名/删除、JSON 导入/导出。
-- 游戏内可拖拽编辑、实体按键捕获、方向/视角设置、预览、保存或取消。
-- 小球/通知暂停、F8 紧急暂停、设备断开/事件丢失/IPC 断开时释放触点和独占。
+- Root 服务：本机 SU 启动 app_process 守护进程，通过抽象 Unix socket 反向回连，校验 UID 和随机 token。无网络权限。
+- 输入：JNI 读取 USB / 蓝牙 evdev 设备并独占（EVIOCGRAB），排除触屏和电源 / 音量节点；专用高优先级采集线程。
+- 按键动作：按住、单击、切换按住、连点、定时滑动；最多 20 个点位，最多 10 个同时触点。
+- WASD 摇杆：拟真 / 平滑 / 直接三种手感，弹簧跟随轨迹，可调到位时间、按住漂移、终点偏角、推出比例和起点偏移，支持半径切换键。详见 [摇杆算法](docs/摇杆算法.md)。
+- 鼠标：FPS 相对视角（水平 / 垂直灵敏度滑块、开镜灵敏度倍率、鼠标回报率 125～1000 Hz、反转 Y、闲置释放、边缘重定位），悬浮球菜单里可以随时调灵敏度，自由指针模式下左键转触控点击和拖动，滚轮、中键、侧键可绑定。
+- 配置：按游戏保存多个本地配置，支持复制、重命名、删除、JSON 导入导出；游戏内拖拽编辑、实体按键捕获。
+- 安全：悬浮球 / 通知暂停、F8 紧急暂停；设备断开、事件丢失或连接中断时自动释放触点和独占。
 
-## 文件
+## 目录
 
-- `app/`：独立 Android Java / JNI 源码。
-- `scripts/release.sh`：编译三架构 native、Release、Lint、对齐、签名与校验。
-- `scripts/joystick-oracle/`：自行编写的原字节码计算对照工具；参考DEX需本地提供，不随仓库分发。
-- `scripts/test-engine.sh`：引擎状态机测试，需已启动并连接的 Android 模拟器/设备。
-- `app/src/androidTest/`：无第三方依赖的配置 API 测试，测试后恢复原配置。
-- `research/REA分析报告.md`：调研结论与 17 份 JSON 证据索引。
-- `docs/WASD算法说明.md`：真实公式、参数、模式与验证边界。
-- `docs/验收说明.md`：完成边界、验收操作和实测记录位置。
-- `.signing/`：本机私有签名材料；保留它才能用同一证书覆盖安装，未包含在源码压缩包中。
+- `app/`：Android Java / JNI 源码。
+- `docs/技术实现.md`：架构和安全边界。
+- `docs/摇杆算法.md`：WASD 轨迹模型和参数。
+- `scripts/test-trajectory.sh`：摇杆轨迹测试，普通 JVM 即可运行。
+- `scripts/test-engine.sh`：引擎状态机测试，需要已连接的 Android 模拟器或设备。
+- `scripts/input-tests/`：native 输入采集测试。
+- `app/src/androidTest/`：配置 API 测试，测试结束后恢复原配置。
 
-## 构建环境
+## 构建
 
-JDK 17、Gradle 8.14.5、Android SDK 35 / Build Tools 35.0.0、NDK 27.2.12479018。项目当前使用本机 SDK `/opt/homebrew/share/android-commandlinetools`；其他电脑请设置 `local.properties` 和 SDK/NDK 环境变量。应用运行离线；首次准备构建环境仍需要下载这些开发工具。依赖已在本机缓存，本次构建使用 `--offline`。
+JDK 17、Android SDK 35 / Build Tools 35.0.0。修改 native 代码时还需要 NDK 27.2.12479018（预编译的 `libmapper_input.so` 已在 `app/src/main/jniLibs/`）。
 
 ```sh
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+./scripts/test-trajectory.sh
+./gradlew :app:assembleDebug :app:lintDebug
+# 修改 C++ 后重新编译三架构 native 库
 ./scripts/build-native.sh
-./gradlew :app:assembleDebug :app:lintDebug --offline
 # Release 需要本机 .signing/offline-mapper.jks 和 .signing/password
 ./scripts/release.sh
 ```
 
-## 技术依据
+每次推送都会通过 GitHub Actions 构建 debug APK，并运行轨迹测试和 Lint，产物可在 Actions 页面下载。
 
-[REA 官方 Android 分析说明](https://github.com/morluto/rea/blob/main/docs/android-analysis.md)和[资源分析说明](https://github.com/morluto/rea/blob/main/docs/apktool-resource-analysis.md)用于实际静态调研。[KeySync](https://github.com/aka-munan/keysync)仅作为公开架构参考；其应用代码、图标、随机触控逻辑均未复制。Gradle wrapper 来自标准生成脚本，许可见 `docs/licenses/Apache-2.0.txt`。
+## 说明
 
-原包的 `TouchInjector`、输入解析、Root 服务及 native grab 等静态线索支持该基础实现路线，但不证明行为完全一致。Android 公开触点结构可参考 [MotionEvent](https://developer.android.com/reference/android/view/MotionEvent)。不同厂商系统、SELinux 策略及真实游戏兼容性须在目标手机验证。
+本项目为独立实现，不包含任何商业软件的代码、资源或商标。第三方参考见 [第三方说明](docs/第三方说明.md)。不同厂商系统、SELinux 策略和游戏的兼容性需要在目标手机上验证。

@@ -22,7 +22,7 @@ import java.util.Locale;
 
 /** Settings dialogs use an overlay window so they remain available over the game. */
 public final class EditorDialogs {
-    private static final int TEXT = Color.rgb(233, 240, 234), MUTED = Color.rgb(155, 172, 158);
+    private static final int TEXT = Ui.TEXT, MUTED = Ui.MUTED;
     private interface Apply { void apply() throws Exception; }
     public static AlertDialog binding(Context context, JSONObject entry, Runnable changed) {
         Form form = new Form(context);
@@ -56,15 +56,18 @@ public final class EditorDialogs {
         EditText y = form.number("中心 Y（屏幕高度 %）", entry.optDouble("y", .75) * 100);
         EditText radius = form.number("半径（屏幕短边 %，1～45）", entry.optDouble("radius", .075) * 100);
         CheckBox pixelRadius = form.check("用像素精确设置半径", entry.has("radiusPixels"));
-        EditText pixels = form.number("精确半径（像素，1～900；原版默认 90）", entry.optInt("radiusPixels",90));
-        Spinner trajectory = form.spinner("触摸轨迹", new String[]{"全摇感随机", "半摇感随机", "普通摇杆"});
+        EditText pixels = form.number("精确半径（像素，1～900）", entry.optInt("radiusPixels",90));
+        Spinner trajectory = form.spinner("摇杆手感", new String[]{"拟真（平滑 + 轻微漂移）", "平滑（弹簧跟随）", "直接（瞬间到位）"});
         trajectory.setSelection(entry.optInt("trajectoryMode",0));
-        Spinner variant = form.spinner("轨迹参数档", new String[]{"跟随模式和当前游戏", "原版基础参数", "原版增强参数", "原版轻量参数", "原版二阶段回调"});
-        variant.setSelection(entry.optInt("trajectoryVariant",-1)+1);
+        cn.offline.mapper.engine.JoystickTrajectory.Params defaults=cn.offline.mapper.engine.JoystickTrajectory.Params.defaults(entry.optInt("trajectoryMode",0));
+        EditText settle = form.number("到位时间（毫秒，10～500）", entry.optInt("settleMs",defaults.settleMs));
+        EditText wobble = form.number("按住漂移幅度（像素，0～40，仅拟真）", entry.optInt("wobblePx",defaults.wobblePx));
+        EditText overshoot = form.number("推出半径之外（%，0～100）", entry.optInt("overshootPercent",defaults.overshootPercent));
+        EditText startOffset = form.number("按下起点随机偏移（像素，0～60）", entry.optInt("startOffsetPx",20));
         CheckBox customAngles = form.check("自定义终点偏角范围",entry.optBoolean("customAngles",false));
-        EditText angleMin = form.number("偏角下限（整数度，-180～180）",entry.optInt("angleMin",-12));
-        EditText angleMax = form.number("偏角上限（整数度，-180～180）",entry.optInt("angleMax",12));
-        form.note("关闭自定义时使用原版范围；开启后仅替换终点偏角，不改变曲线、半径、起点或持续扰动。两个端点都包含在内。普通摇杆不使用随机偏角。");
+        EditText angleMin = form.number("偏角下限（整数度，-45～45）",entry.optInt("angleMin",-8));
+        EditText angleMax = form.number("偏角上限（整数度，-45～45）",entry.optInt("angleMax",8));
+        form.note("拟真模式下每次换方向，终点会在偏角范围内随机；平滑模式使用范围中值；直接模式忽略。");
         Spinner radiusSwitch = form.spinner("半径切换",new String[]{"不切换","长按切换","按下切换"});
         radiusSwitch.setSelection(entry.optInt("radiusSwitchMode",0));
         EditText radiusKey = form.key("半径切换键",entry.optInt("radiusSwitchCode",56));
@@ -72,23 +75,22 @@ public final class EditorDialogs {
         EditText up = form.key("向上", entry.optInt("up", 17)), down = form.key("向下", entry.optInt("down", 31));
         EditText left = form.key("向左", entry.optInt("left", 30)), right = form.key("向右", entry.optInt("right", 32));
         android.widget.Button details = new android.widget.Button(form.context);
-        details.setText("查看算法与原版参数");form.fields.addView(details);
+        details.setText("查看手感说明");form.fields.addView(details);
         TextView explanation = new TextView(form.context);explanation.setTextColor(MUTED);explanation.setTextSize(13);
-        explanation.setText("随机轨迹：按下时每轴整数偏移 -30～29 像素；终点偏角在所选整数范围内均匀抽取，半径倍率另行均匀抽取。\n\n"
-                +"基础：偏角 ±12°，半径 1～1.8 倍，终点每轴再偏移 -6～5 像素。\n增强：±15°，1～2.2 倍，-10～9 像素。\n轻量：±6°，1～1.4 倍，-3～2 像素。\n\n"
-                +"移动由五类随机曲线分支生成，第一阶段总睡眠 33～45 毫秒，基础点数 15～30。二阶段档会短暂停顿，再移动到接近原半径的位置。\n\n"
-                +"持续按住：基础和轻量档每 150～300 毫秒，在目标附近每轴 -5～5 像素重新采样；增强档为 120～260 毫秒、-12～12 像素。不是逐步累加的随机游走。\n\n"
-                +"转向保持同一触点，从实际当前位置开始；相反方向互相抵消；松开最后方向键时直接抬起。普通档按固定八方向移动，没有上述轨迹随机。\n\n"
-                +"触点大小字段每次事件另行在约 0.02～0.05 之间采样。这与角度、半径是独立的算法。轨迹对比一致也不代表游戏账号安全。");
+        explanation.setText("手指被一根“弹簧”拉向摇杆边缘的目标点，按固定帧率平滑移动。换方向只更换目标，速度会延续，所以转向时自然划出弧线。\n\n"
+                +"到位时间：越小越跟手，越大越柔和。\n按住漂移：拟真模式下按住方向时，手指在目标附近缓慢连续地小幅移动。\n推出半径之外：让终点略超出摇杆半径，确保游戏识别为推满。\n起点偏移：每次按下时手指落点在中心附近随机。\n\n"
+                +"相反方向键互相抵消；松开最后一个方向键时在当前位置抬起。");
         explanation.setPadding(0,form.dp(8),0,form.dp(12));explanation.setVisibility(View.GONE);form.fields.addView(explanation);
-        details.setOnClickListener(v->{boolean show=explanation.getVisibility()!=View.VISIBLE;explanation.setVisibility(show?View.VISIBLE:View.GONE);details.setText(show?"收起算法说明":"查看算法与原版参数");});
+        details.setOnClickListener(v->{boolean show=explanation.getVisibility()!=View.VISIBLE;explanation.setVisibility(show?View.VISIBLE:View.GONE);details.setText(show?"收起说明":"查看手感说明");});
         return form.show("方向摇杆设置", () -> {
             JSONObject copy = new JSONObject(entry.toString());
             copy.put("enabled", enabled.isChecked()).put("x", number(x, 0, 100) / 100).put("y", number(y, 0, 100) / 100)
                 .put("radius", number(radius, 1, 45) / 100).put("up", key(up)).put("down", key(down)).put("left", key(left)).put("right", key(right));
             if(pixelRadius.isChecked())copy.put("radiusPixels",integer(pixels,1,900));else copy.remove("radiusPixels");
-            copy.put("trajectoryMode",trajectory.getSelectedItemPosition()).put("trajectoryVariant",variant.getSelectedItemPosition()-1)
-                .put("customAngles",customAngles.isChecked()).put("angleMin",integer(angleMin,-180,180)).put("angleMax",integer(angleMax,-180,180))
+            copy.remove("trajectoryVariant");
+            copy.put("trajectoryMode",trajectory.getSelectedItemPosition()).put("settleMs",integer(settle,10,500)).put("wobblePx",integer(wobble,0,40))
+                .put("overshootPercent",integer(overshoot,0,100)).put("startOffsetPx",integer(startOffset,0,60))
+                .put("customAngles",customAngles.isChecked()).put("angleMin",integer(angleMin,-45,45)).put("angleMax",integer(angleMax,-45,45))
                 .put("radiusSwitchMode",radiusSwitch.getSelectedItemPosition()).put("radiusSwitchCode",key(radiusKey)).put("radiusSwitchPercent",integer(percent,30,300));
             cn.offline.mapper.engine.JoystickController.validateOptions(copy);
             merge(entry, copy); changed.run();
@@ -101,18 +103,66 @@ public final class EditorDialogs {
         EditText x = form.number("中心 X（屏幕宽度 %）", entry.optDouble("x", .65) * 100);
         EditText y = form.number("中心 Y（屏幕高度 %）", entry.optDouble("y", .5) * 100);
         EditText radius = form.number("滑动范围半径（屏幕短边 %，2～45）", entry.optDouble("radius", .2) * 100);
-        EditText sx = form.number("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1));
-        EditText sy = form.number("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1));
+        EditText sx = form.slider("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1), .05, 5, .05);
+        EditText sy = form.slider("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1), .05, 5, .05);
+        form.note("滑块调到 5，更大的数值可以直接在右边输入。");
+        Spinner rate = form.spinner("鼠标回报率", rateNames());
+        rate.setSelection(rateIndex(entry.optInt("rateHz", 0)));
+        int mouseHz = RootBridge.get(context).detail().optInt("mouseHz", 0);
+        form.note((mouseHz > 0 ? "检测到你的鼠标回报率约 " + mouseHz + " Hz。" : "开始映射并移动鼠标后，这里会显示检测到的鼠标回报率。")
+                + "跟随鼠标：鼠标每上报一次就滑动一次。选 125 / 250 / 500 / 1000 Hz：视角按这个频率滑动，间隔内的鼠标移动会合并，总移动量不变；一般选成和鼠标驱动里设置的回报率一样，游戏里转视角卡顿时可以选低一档。");
+        EditText scope = form.key("开镜键（留空或填 0 表示不用）", entry.optInt("scopeCode", 0));
+        if (entry.optInt("scopeCode", 0) == 0) scope.setText("");
+        Spinner scopeMode = form.spinner("开镜方式", new String[]{"按住开镜键时生效", "按一下开，再按一下关"});
+        scopeMode.setSelection(entry.optInt("scopeMode", 0));
+        EditText scopeScale = form.slider("开镜灵敏度倍率（0.05～5）", entry.optDouble("scopeScale", .6), .05, 2, .05);
+        form.note("开镜时的灵敏度 = 上面的灵敏度 × 倍率。开镜键可以和游戏里开镜按钮绑定的键相同，例如鼠标右键。");
         EditText toggle = form.key("视角捕获切换键", entry.optInt("toggleCode", 59));
         EditText idle = form.number("鼠标停下后释放（毫秒，0～2000）", entry.optInt("idleMs", 80));
         CheckBox invert = form.check("反转垂直方向", entry.optBoolean("invertY", false));
+        CheckBox lockOnStart = form.check("开始映射时直接用鼠标控制视角", entry.optBoolean("lockOnStart", true));
+        form.note("关闭后，开始映射时鼠标是普通指针，需要按视角切换键（默认 F1）才会控制视角。");
         return form.show("鼠标视角设置", () -> {
             JSONObject copy = new JSONObject(entry.toString());
             copy.put("enabled", enabled.isChecked()).put("x", number(x, 0, 100) / 100).put("y", number(y, 0, 100) / 100)
                 .put("radius", number(radius, 2, 45) / 100).put("sensitivityX", number(sx, .05, 30)).put("sensitivityY", number(sy, .05, 30))
-                .put("toggleCode", key(toggle)).put("idleMs", Math.round(number(idle, 0, 2000))).put("invertY", invert.isChecked());
+                .put("toggleCode", key(toggle)).put("idleMs", Math.round(number(idle, 0, 2000))).put("invertY", invert.isChecked()).put("lockOnStart", lockOnStart.isChecked())
+                .put("rateHz", cn.offline.mapper.engine.AimOptions.RATES[rate.getSelectedItemPosition()])
+                .put("scopeCode", optionalKey(scope)).put("scopeMode", scopeMode.getSelectedItemPosition()).put("scopeScale", number(scopeScale, .05, 5));
+            cn.offline.mapper.engine.AimOptions.validate(copy);
             merge(entry, copy); changed.run();
         });
+    }
+    /** Quick in-game adjustment of the view sensitivity only; {@code changed} runs after the profile entry is updated. */
+    public static AlertDialog sensitivity(Context context, JSONObject entry, Runnable changed) {
+        Form form = new Form(context);
+        EditText sx = form.slider("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1), .05, 5, .05);
+        EditText sy = form.slider("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1), .05, 5, .05);
+        EditText scopeScale = form.slider("开镜灵敏度倍率（0.05～5）", entry.optDouble("scopeScale", .6), .05, 2, .05);
+        Spinner rate = form.spinner("鼠标回报率", rateNames());
+        rate.setSelection(rateIndex(entry.optInt("rateHz", 0)));
+        form.note("应用后立即生效。开镜键和其他视角选项在“编辑屏幕点位”里双击视角区域设置。");
+        return form.show("视角灵敏度", () -> {
+            JSONObject copy = new JSONObject(entry.toString());
+            copy.put("sensitivityX", number(sx, .05, 30)).put("sensitivityY", number(sy, .05, 30)).put("scopeScale", number(scopeScale, .05, 5))
+                .put("rateHz", cn.offline.mapper.engine.AimOptions.RATES[rate.getSelectedItemPosition()]);
+            merge(entry, copy); changed.run();
+        });
+    }
+    private static String[] rateNames() {
+        int[] rates = cn.offline.mapper.engine.AimOptions.RATES; String[] names = new String[rates.length];
+        for (int i = 0; i < rates.length; i++) names[i] = rates[i] == 0 ? "跟随鼠标（每次上报都发送）" : rates[i] + " Hz";
+        return names;
+    }
+    /** Hand-edited profiles may hold a rate that is not in the list; show the nearest one. */
+    private static int rateIndex(int hz) {
+        int[] rates = cn.offline.mapper.engine.AimOptions.RATES; int best = 0;
+        for (int i = 1; i < rates.length; i++) if (hz > 0 && (best == 0 || Math.abs(rates[i] - hz) < Math.abs(rates[best] - hz))) best = i;
+        return best;
+    }
+    private static int optionalKey(EditText field) {
+        String text = field.getText().toString().trim();
+        return text.isEmpty() || text.equals("0") ? 0 : key(field);
     }
     private static double number(EditText field, double min, double max) {
         double result;
@@ -145,27 +195,75 @@ public final class EditorDialogs {
     private static final class Form {
         final Context context;
         final LinearLayout fields;
-        final ScrollView scroll;
-        final float density;
-        final TextView error;
         Form(Context context) {
-            this.context = new android.view.ContextThemeWrapper(context, android.R.style.Theme_Material_Dialog_Alert);
-            density = context.getResources().getDisplayMetrics().density;
-            fields = new LinearLayout(this.context); fields.setOrientation(LinearLayout.VERTICAL); fields.setPadding(dp(20), dp(8), dp(20), dp(12));
-            scroll = new ScrollView(this.context); scroll.setFillViewport(true); scroll.addView(fields);
-            error = new TextView(this.context); error.setTextColor(Color.rgb(255, 145, 145)); error.setTextSize(13);
+            this.context = new android.view.ContextThemeWrapper(context, android.R.style.Theme_Material_Dialog);
+            fields = new LinearLayout(this.context); fields.setOrientation(LinearLayout.VERTICAL);
         }
-        int dp(float n) { return Math.round(n * density); }
-        void note(String value) { TextView text = new TextView(context); text.setText(value); text.setTextColor(MUTED); text.setTextSize(13); text.setPadding(0, dp(5), 0, dp(12)); fields.addView(text); }
-        void title(String name) { TextView label = new TextView(context); label.setText(name); label.setTextColor(TEXT); label.setTextSize(13); label.setPadding(0, dp(10), 0, dp(3)); fields.addView(label); }
+        int dp(float n) { return Ui.dp(context, n); }
+        void note(String value) {
+            TextView text = Ui.text(context, value, 13, Ui.MUTED);
+            text.setBackground(Ui.shape(context, Ui.SURFACE_2, 12, 0)); text.setPadding(dp(12), dp(10), dp(12), dp(10));
+            fields.addView(text, Ui.margins(context, Ui.fill(-2), 0, 4, 0, 6));
+        }
+        void title(String name) {
+            TextView label = Ui.text(context, name, 13, Ui.MUTED);
+            fields.addView(label, Ui.margins(context, Ui.fill(-2), 2, 12, 0, 6));
+        }
+        private EditText input() {
+            EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true); input.setTextSize(15);
+            input.setHintTextColor(Ui.FAINT);
+            input.setBackground(Ui.shape(context, Ui.SURFACE_2, 12, Ui.STROKE)); input.setPadding(dp(14), 0, dp(14), 0);
+            return input;
+        }
         EditText number(String name, double value) {
-            title(name); EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true);
+            title(name); EditText input = input();
             input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
             input.setText(String.format(Locale.US, "%.3f", value).replaceAll("0+$", "").replaceAll("\\.$", ""));
             fields.addView(input, new LinearLayout.LayoutParams(-1, dp(48))); return input;
         }
+        /** Slider for the usual range with a number field beside it for exact or larger values. */
+        EditText slider(String name, double value, double min, double max, double step) {
+            title(name);
+            LinearLayout line = Ui.row(context);
+            android.widget.SeekBar bar = new android.widget.SeekBar(context);
+            int steps = (int) Math.round((max - min) / step);
+            bar.setMax(steps);
+            bar.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            bar.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Ui.MUTED));
+            EditText input = input();
+            input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            input.setGravity(android.view.Gravity.CENTER);
+            input.setPadding(dp(4), 0, dp(4), 0);
+            input.setText(String.format(Locale.US, "%.2f", value).replaceAll("0+$", "").replaceAll("\\.$", ""));
+            bar.setProgress((int) Math.round((Math.max(min, Math.min(max, value)) - min) / step));
+            bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(android.widget.SeekBar seek, int progress, boolean fromUser) {
+                    if (!fromUser) return;
+                    input.setError(null);
+                    input.setText(String.format(Locale.US, "%.2f", min + progress * step).replaceAll("0+$", "").replaceAll("\\.$", ""));
+                }
+                public void onStartTrackingTouch(android.widget.SeekBar seek) { }
+                public void onStopTrackingTouch(android.widget.SeekBar seek) { }
+            });
+            input.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+                public void onTextChanged(CharSequence text, int start, int before, int count) { }
+                public void afterTextChanged(android.text.Editable text) {
+                    try {
+                        double typed = Double.parseDouble(text.toString().trim());
+                        bar.setProgress((int) Math.round((Math.max(min, Math.min(max, typed)) - min) / step));
+                    } catch (NumberFormatException incomplete) { /* Keep the slider where it is while the user is typing. */ }
+                }
+            });
+            line.addView(bar, new LinearLayout.LayoutParams(0, dp(48), 1));
+            line.addView(input, Ui.margins(context, new LinearLayout.LayoutParams(dp(76), dp(48)), 8, 0, 0, 0));
+            fields.addView(line, Ui.fill(-2)); return input;
+        }
         EditText key(String name, int code) {
-            title(name); EditText input = new EditText(context); input.setTextColor(TEXT); input.setSingleLine(true); input.setInputType(InputType.TYPE_CLASS_TEXT);
+            title(name);
+            LinearLayout line = Ui.row(context);
+            EditText input = input(); input.setInputType(InputType.TYPE_CLASS_TEXT);
             input.setText(BindingKey.label(code)); input.setHint("按实体键，或输入名称 / 键码"); input.setSelectAllOnFocus(true);
             input.setOnKeyListener((view, keyCode, event) -> {
                 if ((event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0) return false;
@@ -178,9 +276,10 @@ public final class EditorDialogs {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) { input.setText(BindingKey.label(linux)); input.selectAll(); }
                 return true;
             });
-            fields.addView(input, new LinearLayout.LayoutParams(-1, dp(48)));
+            line.addView(input, new LinearLayout.LayoutParams(0, dp(48), 1));
             Spinner picker = new Spinner(context); String[] labels = BindingKey.labels();
             ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item, labels); picker.setAdapter(adapter);
+            picker.setBackground(Ui.shape(context, Ui.SURFACE_3, 12, 0));
             int position = 0; for (int i = 0; i < labels.length; i++) if (BindingKey.codeFromLabel(labels[i]) == code) position = i;
             picker.setSelection(position); picker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 boolean ready;
@@ -189,41 +288,45 @@ public final class EditorDialogs {
                 }
                 public void onNothingSelected(android.widget.AdapterView<?> parent) { }
             });
-            fields.addView(picker, new LinearLayout.LayoutParams(-1, dp(44))); return input;
+            picker.setContentDescription("从列表选择按键");
+            line.addView(picker, Ui.margins(context, new LinearLayout.LayoutParams(dp(112), dp(48)), 8, 0, 0, 0));
+            fields.addView(line, Ui.fill(-2)); return input;
         }
-        Spinner spinner(String name, String[] options) { title(name); Spinner spinner = new Spinner(context); spinner.setAdapter(new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item, options)); fields.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48))); return spinner; }
-        CheckBox check(String name, boolean checked) { CheckBox box = new CheckBox(context); box.setText(name); box.setTextColor(TEXT); box.setChecked(checked); fields.addView(box); return box; }
+        Spinner spinner(String name, String[] options) {
+            title(name); Spinner spinner = new Spinner(context);
+            spinner.setAdapter(new ArrayAdapter<>(context, android.R.layout.simple_spinner_dropdown_item, options));
+            spinner.setBackground(Ui.shape(context, Ui.SURFACE_2, 12, Ui.STROKE));
+            fields.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48))); return spinner;
+        }
+        CheckBox check(String name, boolean checked) {
+            CheckBox box = new CheckBox(context); box.setText(name); box.setTextColor(TEXT); box.setTextSize(15); box.setChecked(checked);
+            box.setButtonTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            fields.addView(box, Ui.margins(context, Ui.fill(dp(48)), 0, 6, 0, 0)); return box;
+        }
         AlertDialog show(String title, Apply apply) {
-            fields.addView(error);
-            AlertDialog dialog = new AlertDialog.Builder(context).setTitle(title).setView(scroll).setPositiveButton("应用", null).setNegativeButton("取消", null).create();
-            Window window = dialog.getWindow();
-            if (window != null) { window.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY); window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); }
+            Sheet sheet = new Sheet(context, title, null, true);
+            sheet.body.addView(fields, Ui.fill(-2));
+            sheet.action("取消", Ui.Kind.GHOST, null).action("应用", Ui.Kind.PRIMARY, apply::apply);
+            AlertDialog dialog = sheet.dialog;
             dialog.setOnKeyListener((d, keyCode, event) -> {
                 if (keyCode == KeyEvent.KEYCODE_F8) { if (event.getAction() == KeyEvent.ACTION_DOWN) RootBridge.get(context).pauseMapping(); return true; } return false;
             });
-            dialog.setOnShowListener(d -> {
-                Window w = dialog.getWindow();
-                if (w != null) {
-                    GradientDrawable background = new GradientDrawable(); background.setColor(Color.rgb(31, 32, 34)); background.setCornerRadius(dp(20)); w.setBackgroundDrawable(background);
-                    android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-                    int dialogWidth = Math.min(dp(430), metrics.widthPixels - dp(24));
-                    w.setLayout(dialogWidth, Math.min(dp(650), metrics.heightPixels - dp(40)));
-                    // Overlay dialogs keep their requested height when the IME opens; cap it
-                    // to the visible display frame so the Apply/Cancel buttons stay reachable.
-                    w.getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-                        android.graphics.Rect available = new android.graphics.Rect();
-                        w.getDecorView().getWindowVisibleDisplayFrame(available);
-                        int height = Math.min(dp(650), Math.max(dp(180), available.height() - dp(32)));
-                        if (available.height() > 0 && w.getAttributes().height != height) w.setLayout(dialogWidth, height);
-                    });
-                }
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.rgb(68, 214, 44));
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                    try { apply.apply(); dialog.dismiss(); }
-                    catch (Exception problem) { error.setText(problem.getMessage() == null ? "设置无效" : problem.getMessage()); }
+            sheet.show();
+            Window w = dialog.getWindow();
+            if (w != null) {
+                android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+                int dialogWidth = Math.min(dp(440), metrics.widthPixels - dp(24));
+                w.setLayout(dialogWidth, Math.min(dp(650), metrics.heightPixels - dp(40)));
+                // Overlay dialogs keep their requested height when the IME opens; cap it
+                // to the visible display frame so the action buttons stay reachable.
+                w.getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+                    android.graphics.Rect available = new android.graphics.Rect();
+                    w.getDecorView().getWindowVisibleDisplayFrame(available);
+                    int height = Math.min(dp(650), Math.max(dp(180), available.height() - dp(32)));
+                    if (available.height() > 0 && w.getAttributes().height != height) w.setLayout(dialogWidth, height);
                 });
-            });
-            dialog.show(); return dialog;
+            }
+            return dialog;
         }
     }
     private EditorDialogs() { }

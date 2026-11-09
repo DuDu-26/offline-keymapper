@@ -8,7 +8,7 @@ Supply one explicit ADB device:
 ./scripts/input-tests/run-scanner-test.sh emulator-5560
 ```
 
-The script uses the project's existing NDK configuration, builds a test-only executable under ignored `research/input-tests/`, runs it, then removes the device executable. Tests cover directory/node/query permission errors, USB composite and Bluetooth inclusion, internal/touch/power exclusion, acquisition busy errors, pause without rescanning, cached diagnostics and inventory length limits. These fake-I/O tests do not establish physical keyboard/hub compatibility.
+The script uses the project's existing NDK configuration, builds a test-only executable under ignored `build/input-tests/`, runs it, then removes the device executable. Tests cover directory/node/query permission errors, USB composite and Bluetooth inclusion, internal/touch/power exclusion, acquisition busy errors, pause without rescanning, cached diagnostics and inventory length limits. These fake-I/O tests do not establish physical keyboard/hub compatibility.
 
 The high-rate regression queues 5,000 ordered synthetic mouse events and verifies that bounded polling yields without releasing exclusive ownership, while a second keyboard remains responsive. A twenty-device fixture verifies the 1,024-event total budget and rotating fairness. Continuous input and interrupted reads cannot monopolize a call. Real SYN_DROPPED, HUP, EOF and hard I/O failures remain distinct safe-pause conditions; diagnostics retain the node path, cause and aggregate counters, never actual key or motion contents. Activation discards at most 4,096 queued stale events per device so continuous input cannot hang startup. This bounded flush is not a kernel queue reset.
 

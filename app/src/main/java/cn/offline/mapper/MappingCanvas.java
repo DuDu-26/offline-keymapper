@@ -29,7 +29,7 @@ public final class MappingCanvas extends View {
     private int selected = NONE, touchTarget = NONE, pointer = -1;
     private float downX, downY, initialX, initialY;
     private boolean dragged, preview, touchEnd;
-    private static final int ACCENT = Color.rgb(68, 214, 44);
+    private static final int ACCENT = Ui.ACCENT, JOY = Ui.SUCCESS, AIM_COLOR = 0xffb07cff;
 
     public MappingCanvas(Context context, JSONObject profile) {
         super(context);
@@ -106,7 +106,7 @@ public final class MappingCanvas extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (!preview) {
-            canvas.drawColor(Color.argb(24, 7, 9, 11));
+            canvas.drawColor(Color.argb(70, 8, 10, 16));
             paint.setStrokeWidth(density);
             paint.setColor(Color.argb(25, 255, 255, 255));
             for (int i = 1; i < 10; i++) {
@@ -114,8 +114,8 @@ public final class MappingCanvas extends View {
                 canvas.drawLine(0, getHeight() * i / 10f, getWidth(), getHeight() * i / 10f, paint);
             }
         }
-        drawArea(canvas, profile.optJSONObject("aim"), AIM, "鼠标视角", Color.rgb(73, 170, 255));
-        drawArea(canvas, profile.optJSONObject("joystick"), JOYSTICK, "方向摇杆", ACCENT);
+        drawArea(canvas, profile.optJSONObject("aim"), AIM, "鼠标视角", AIM_COLOR);
+        drawArea(canvas, profile.optJSONObject("joystick"), JOYSTICK, "方向摇杆", JOY);
         JSONArray entries = bindings();
         if (entries != null) for (int i = 0; i < entries.length(); i++) {
             JSONObject entry = entries.optJSONObject(i);
@@ -155,15 +155,18 @@ public final class MappingCanvas extends View {
             arrow.lineTo(ex - (float) Math.cos(angle + .5) * 15 * density, ey - (float) Math.sin(angle + .5) * 15 * density);
             canvas.drawPath(arrow, paint);
         }
-        paint.setStyle(Paint.Style.FILL); paint.setColor(Color.argb(preview ? 100 : 220, 16, 24, 18));
+        paint.setStyle(Paint.Style.FILL); paint.setColor(Color.argb(preview ? 110 : 225, 20, 24, 33));
         canvas.drawCircle(x, y, radius, paint);
         paint.setStyle(Paint.Style.STROKE); paint.setColor(ACCENT); paint.setStrokeWidth((selected == id ? 3 : 1.5f) * density);
         canvas.drawCircle(x, y, radius, paint);
         if (selected == id) { paint.setColor(Color.WHITE); paint.setStrokeWidth(density); canvas.drawCircle(x, y, radius + 5 * density, paint); }
         String title = entry.optString("label", BindingKey.label(entry.optInt("code", 57)));
         if (title.length() > 6) title = title.substring(0, 5) + "…";
-        label(canvas, title, x, y, ACCENT);
-        if (!preview) label(canvas, typeLabel(entry.optString("type")), x, y + 35 * density, Color.LTGRAY);
+        paint.setTextSize(12 * density);
+        float fit = Math.min(1f, (radius * 2 - 10 * density) / Math.max(1f, paint.measureText(title)));
+        paint.setStyle(Paint.Style.FILL); paint.setTextSize(12 * density * fit); paint.setTextAlign(Paint.Align.CENTER); paint.setColor(Ui.TEXT);
+        canvas.drawText(title, x, y - (paint.ascent() + paint.descent()) / 2, paint);
+        if (!preview) label(canvas, typeLabel(entry.optString("type")), x, y + 35 * density, Ui.MUTED);
     }
     public static String typeLabel(String type) {
         if ("tap".equals(type)) return "单击";

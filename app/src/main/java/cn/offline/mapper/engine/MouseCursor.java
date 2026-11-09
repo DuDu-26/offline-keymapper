@@ -28,7 +28,7 @@ final class MouseCursor {
     void cancel() throws Exception {
         try{if(pressed)injector.up(TOUCH_ID);}finally{pressed=false;}
     }
-    // Recovered pointer-to-touch conversion uses a four-pixel hotspot offset.
+    // The drawn arrow tip sits four pixels inside the bitmap; touches land on the tip.
     private float touchX(){return Math.max(0,x-4);}
     private float touchY(){return Math.max(0,y-4);}
 }

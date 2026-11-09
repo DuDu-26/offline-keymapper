@@ -12,8 +12,8 @@ import java.util.Random;
 final class TouchInjector implements TouchSink {
     interface InjectionSink { boolean inject(InputEvent event) throws Exception; }
     private static final class Point {
-        final int logicalId, pointerId; float x, y;
-        Point(int logicalId, int pointerId, float x, float y) { this.logicalId = logicalId; this.pointerId = pointerId; this.x = x; this.y = y; }
+        final int logicalId, pointerId; final float size; float x, y;
+        Point(int logicalId, int pointerId, float x, float y, float size) { this.logicalId = logicalId; this.pointerId = pointerId; this.x = x; this.y = y; this.size = size; }
     }
     private final ArrayList<Point> points = new ArrayList<>();
     private final Object inputManager;
@@ -22,6 +22,9 @@ final class TouchInjector implements TouchSink {
     private long downTime;
     private long eventTime;
     private final Random sizeRandom = new Random();
+    // Reused for every event: the framework copies these into the MotionEvent, so no per-event garbage.
+    private final MotionEvent.PointerProperties[][] propertyPool = new MotionEvent.PointerProperties[11][];
+    private final MotionEvent.PointerCoords[][] coordPool = new MotionEvent.PointerCoords[11][];
 
     TouchInjector() throws Exception {
         testSink=null;
@@ -54,7 +57,8 @@ final class TouchInjector implements TouchSink {
         boolean[] used = new boolean[10];
         for (Point point : points) used[point.pointerId] = true;
         int pointerId = 0; while (used[pointerId]) pointerId++;
-        points.add(new Point(id, pointerId, x, y));
+        // Each finger keeps one plausible contact size for its whole gesture.
+        points.add(new Point(id, pointerId, x, y, 0.03f + sizeRandom.nextFloat() * 0.015f));
         int action = points.size() == 1 ? MotionEvent.ACTION_DOWN
                 : MotionEvent.ACTION_POINTER_DOWN | ((points.size() - 1) << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
         emit(action);
@@ -80,17 +84,23 @@ final class TouchInjector implements TouchSink {
         if(Boolean.FALSE.equals(result))throw new IllegalStateException("系统拒绝输入注入");
     }
     private void emit(int action) throws Exception {
-        MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[points.size()];
-        MotionEvent.PointerCoords[] coordinates = new MotionEvent.PointerCoords[points.size()];
-        for (int i = 0; i < points.size(); i++) {
+        int count = points.size();
+        if (propertyPool[count] == null) {
+            propertyPool[count] = new MotionEvent.PointerProperties[count];
+            coordPool[count] = new MotionEvent.PointerCoords[count];
+            for (int i = 0; i < count; i++) {
+                propertyPool[count][i] = new MotionEvent.PointerProperties();
+                propertyPool[count][i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+                coordPool[count][i] = new MotionEvent.PointerCoords();
+                coordPool[count][i].pressure = 1f;
+            }
+        }
+        MotionEvent.PointerProperties[] properties = propertyPool[count];
+        MotionEvent.PointerCoords[] coordinates = coordPool[count];
+        for (int i = 0; i < count; i++) {
             Point p = points.get(i);
-            properties[i] = new MotionEvent.PointerProperties();
-            properties[i].id = p.pointerId; properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
-            coordinates[i] = new MotionEvent.PointerCoords();
-            coordinates[i].x = p.x; coordinates[i].y = p.y;
-            coordinates[i].pressure = 1f;
-            // The supplied service samples size for every active point on every event.
-            coordinates[i].size = sizeRandom.nextFloat()*0.030000001f+0.02f;
+            properties[i].id = p.pointerId;
+            coordinates[i].x = p.x; coordinates[i].y = p.y; coordinates[i].size = p.size;
         }
         eventTime = Math.max(eventTime, SystemClock.uptimeMillis());
         MotionEvent event = MotionEvent.obtain(downTime, eventTime, action, points.size(),

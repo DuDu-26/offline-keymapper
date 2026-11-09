@@ -59,9 +59,9 @@ public final class EngineSelfTest {
         events.clear();engine.key(1,17,1,1100);engine.key(1,32,1,1101);
         awaitPoint(touch,events,242,378);
         Event diagonal=events.get(events.size()-1);
-        check(diagonal.x[0]==242&&diagonal.y[0]==378,"original diagonal integer truncation");
+        check(diagonal.x[0]==242&&diagonal.y[0]==378,"direct diagonal lands on the rounded edge point");
         engine.key(1,17,0,1102);engine.key(1,32,0,1103);check(!touch.contains(30),"joystick release");
-        System.out.println("PASS original joystick diagonal integer truncation and release");
+        System.out.println("PASS direct joystick diagonal and release");
         profile.put("bindings",new JSONArray().put(binding(1,57,"repeat")).put(binding(2,28,"swipe")).put(binding(3,46,"tap")));
         engine.configure(profile,1000,600);engine.start();events.clear();
         engine.key(1,57,1,2000);engine.tick(2050);check(!touch.contains(1),"repeat release half interval");
@@ -80,6 +80,38 @@ public final class EngineSelfTest {
         engine.start();engine.key(1,57,1,3300);engine.pause();
         check(!engine.running()&&!touch.contains(1),"disconnect pause clears pointers");
         System.out.println("PASS aim idle, F8 and disconnect cancellation");
+        engine.configure(new JSONObject().put("bindings",new JSONArray())
+                .put("aim",new JSONObject().put("enabled",true).put("x",.6).put("y",.5).put("radius",.2).put("lockOnStart",true)),1000,600);
+        engine.start();check(engine.aimLocked(),"lockOnStart locks aim when mapping starts");
+        engine.mouse(15,0,3400);check(touch.contains(31),"mouse steers the view without pressing F1");
+        engine.key(1,59,1,3401);engine.key(1,59,0,3402);check(!engine.aimLocked()&&!touch.contains(31),"F1 still releases to the free pointer");
+        engine.pause();check(!engine.aimLocked(),"pause clears the lock");
+        System.out.println("PASS lock aim on start");
+        JSONObject rated=new JSONObject().put("enabled",true).put("x",.6).put("y",.5).put("radius",.2).put("lockOnStart",true)
+                .put("rateHz",100).put("scopeCode",273).put("scopeScale",.5);
+        engine.configure(new JSONObject().put("bindings",new JSONArray()).put("aim",rated),1000,600);engine.start();events.clear();
+        engine.mouse(4,0,6000);check(events.size()==2&&Math.abs(events.get(1).x[0]-604)<.01,"first movement is sent at once");
+        engine.mouse(3,0,6002);engine.mouse(3,0,6005);check(events.size()==2,"movement inside one send interval is held back");
+        engine.tick(6010);check(events.size()==3&&Math.abs(events.get(2).x[0]-610)<.01,"held-back movement is sent as one move with nothing lost");
+        engine.mouse(2,0,6012);engine.key(1,273,1,6013);
+        check(Math.abs(events.get(events.size()-1).x[0]-612)<.01,"pending movement is sent before a key");
+        engine.mouse(10,0,6030);check(Math.abs(events.get(events.size()-1).x[0]-617)<.01,"held scope key scales the sensitivity");
+        engine.key(1,273,0,6031);engine.mouse(10,0,6050);
+        check(Math.abs(events.get(events.size()-1).x[0]-627)<.01,"releasing the scope key restores the sensitivity");
+        engine.tick(6100);check(touch.contains(31),"aim touch stays down until the idle time");
+        engine.tick(6131);check(!touch.contains(31),"aim touch lifts after the idle time");
+        rated.put("scopeMode",1).put("rateHz",0);
+        engine.configure(new JSONObject().put("bindings",new JSONArray()).put("aim",rated),1000,600);engine.start();events.clear();
+        engine.mouse(10,0,7000);engine.key(1,273,1,7020);engine.key(1,273,0,7021);engine.mouse(10,0,7040);
+        check(Math.abs(events.get(events.size()-1).x[0]-615)<.01,"scope toggle stays on after release");
+        engine.key(1,273,1,7060);engine.key(1,273,0,7061);engine.mouse(10,0,7080);
+        check(Math.abs(events.get(events.size()-1).x[0]-625)<.01,"second press turns the scope sensitivity off");
+        engine.pause();
+        boolean rejected=false;
+        try{engine.configure(new JSONObject().put("bindings",new JSONArray()).put("aim",new JSONObject(rated.toString()).put("rateHz",20)),1000,600);}
+        catch(IllegalArgumentException expected){rejected=true;}
+        check(rejected,"send rate below 30 is rejected");
+        System.out.println("PASS aim send rate and scope sensitivity");
         engine.configure(new JSONObject().put("bindings",new JSONArray().put(binding(1,57,"hold"))),1000,600);engine.start();
         engine.key(1,57,1,4000);engine.key(2,57,1,4001);engine.key(1,57,0,4002);
         check(touch.contains(1),"same key on second keyboard remains held");engine.key(2,57,0,4003);
@@ -101,7 +133,7 @@ public final class EngineSelfTest {
         check(events.isEmpty(),"unmapped right button does not synthesize system mouse events");
         cursor.key(272,1);cursor.move(-10,10);cursor.key(272,0);
         check(events.size()==3&&events.get(0).action==MotionEvent.ACTION_DOWN&&events.get(1).action==MotionEvent.ACTION_MOVE&&events.get(2).action==MotionEvent.ACTION_UP,"pointer click and drag use a touch gesture");
-        check(events.get(0).x[0]==995&&events.get(0).y[0]==0,"recovered four-pixel hotspot clamps at zero");
+        check(events.get(0).x[0]==995&&events.get(0).y[0]==0,"four-pixel arrow-tip offset clamps at zero");
         for(Event event:events)check(event.source==android.view.InputDevice.SOURCE_TOUCHSCREEN,"pointer emits only touchscreen source");
         events.clear();touch.down(1,100,100);cursor.key(272,1);cursor.cancel();
         check(touch.contains(1)&&!touch.contains(29),"cursor cancellation preserves other mapped fingers");
@@ -123,9 +155,9 @@ public final class EngineSelfTest {
         engine.configure(randomProfile,1920,1080);engine.start();events.clear();
         engine.key(1,17,1,6000);engine.key(1,57,1,6001);Thread.sleep(450);
         synchronized(touch){
-            check(events.size()>10,"random joystick emits the real multi-point path");
+            check(events.size()>10,"natural joystick emits a multi-point path");
             check(touch.contains(30)&&touch.contains(1),"random worker shares a coherent multi-touch stream");
-            for(Event e:events)for(float value:e.size)check(value>=.02f&&value<=.05f,"original touch size field range");
+            for(Event e:events)for(float value:e.size)check(value>=.02f&&value<=.05f,"touch size field stays in a plausible range");
         }
         engine.key(1,66,1,6500);int stopped;
         synchronized(touch){stopped=events.size();check(!touch.contains(30)&&!touch.contains(1),"F8 releases random path and other touch");}
@@ -134,7 +166,7 @@ public final class EngineSelfTest {
         engine.configure(new JSONObject().put("bindings",new JSONArray()),1920,1080);
         synchronized(touch){stopped=events.size();}
         Thread.sleep(100);synchronized(touch){check(events.size()==stopped,"reconfiguration shuts down the previous worker");}
-        System.out.println("PASS random trajectory concurrency, original size, F8 cancellation and reconfiguration");
+        System.out.println("PASS natural trajectory concurrency, touch size, F8 cancellation and reconfiguration");
         java.util.concurrent.CountDownLatch entered=new java.util.concurrent.CountDownLatch(1),releaseFailure=new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicReference<Exception> observedFailure=new java.util.concurrent.atomic.AtomicReference<>();
         TouchSink failing=new TouchSink(){
@@ -145,7 +177,7 @@ public final class EngineSelfTest {
             public void up(int id){active=false;}
             public void cancel(){active=false;}
         };
-        JoystickController failedController=new JoystickController(failing,new JSONObject().put("trajectoryMode",2).put("radiusPixels",90),"",1920,1080);
+        JoystickController failedController=new JoystickController(failing,new JSONObject().put("trajectoryMode",2).put("radiusPixels",90),1920,1080);
         failedController.direction(true,false,false,false);
         check(entered.await(2,java.util.concurrent.TimeUnit.SECONDS),"failure fixture enters old MOVE");
         Thread turning=new Thread(()->{try{failedController.direction(false,false,false,true);}catch(Exception error){observedFailure.set(error);}},"test-turn-during-failure");
