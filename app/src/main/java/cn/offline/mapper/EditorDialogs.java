@@ -106,11 +106,11 @@ public final class EditorDialogs {
         EditText sx = form.slider("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1), .05, 5, .05);
         EditText sy = form.slider("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1), .05, 5, .05);
         form.note("滑块调到 5，更大的数值可以直接在右边输入。");
-        Spinner rate = form.spinner("视角发送频率", rateNames());
+        Spinner rate = form.spinner("鼠标回报率", rateNames());
         rate.setSelection(rateIndex(entry.optInt("rateHz", 0)));
         int mouseHz = RootBridge.get(context).detail().optInt("mouseHz", 0);
         form.note((mouseHz > 0 ? "检测到你的鼠标回报率约 " + mouseHz + " Hz。" : "开始映射并移动鼠标后，这里会显示检测到的鼠标回报率。")
-                + "跟随鼠标：鼠标每上报一次就滑动一次，最跟手。固定频率：把这段时间内的鼠标移动合并成一次滑动，总移动量不变；高回报率鼠标（500/1000 Hz）在游戏里转视角发飘或卡顿时，可以选成和屏幕刷新率一致的数值。");
+                + "跟随鼠标：鼠标每上报一次就滑动一次。选 125 / 250 / 500 / 1000 Hz：视角按这个频率滑动，间隔内的鼠标移动会合并，总移动量不变；一般选成和鼠标驱动里设置的回报率一样，游戏里转视角卡顿时可以选低一档。");
         EditText scope = form.key("开镜键（留空或填 0 表示不用）", entry.optInt("scopeCode", 0));
         if (entry.optInt("scopeCode", 0) == 0) scope.setText("");
         Spinner scopeMode = form.spinner("开镜方式", new String[]{"按住开镜键时生效", "按一下开，再按一下关"});
@@ -139,7 +139,7 @@ public final class EditorDialogs {
         EditText sx = form.slider("水平灵敏度（0.05～30）", entry.optDouble("sensitivityX", 1), .05, 5, .05);
         EditText sy = form.slider("垂直灵敏度（0.05～30）", entry.optDouble("sensitivityY", 1), .05, 5, .05);
         EditText scopeScale = form.slider("开镜灵敏度倍率（0.05～5）", entry.optDouble("scopeScale", .6), .05, 2, .05);
-        Spinner rate = form.spinner("视角发送频率", rateNames());
+        Spinner rate = form.spinner("鼠标回报率", rateNames());
         rate.setSelection(rateIndex(entry.optInt("rateHz", 0)));
         form.note("应用后立即生效。开镜键和其他视角选项在“编辑屏幕点位”里双击视角区域设置。");
         return form.show("视角灵敏度", () -> {
@@ -151,7 +151,7 @@ public final class EditorDialogs {
     }
     private static String[] rateNames() {
         int[] rates = cn.offline.mapper.engine.AimOptions.RATES; String[] names = new String[rates.length];
-        for (int i = 0; i < rates.length; i++) names[i] = rates[i] == 0 ? "跟随鼠标（每次上报都发送）" : "每秒 " + rates[i] + " 次";
+        for (int i = 0; i < rates.length; i++) names[i] = rates[i] == 0 ? "跟随鼠标（每次上报都发送）" : rates[i] + " Hz";
         return names;
     }
     /** Hand-edited profiles may hold a rate that is not in the list; show the nearest one. */

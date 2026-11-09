@@ -4,8 +4,8 @@ import org.json.JSONObject;
 
 /** Validation for the optional mouse-view settings, shared by the engine and the profile store. */
 public final class AimOptions {
-    /** Send rates offered in the editor; 0 forwards every mouse report as it arrives. */
-    public static final int[] RATES = {0, 60, 90, 120, 144, 240, 500};
+    /** Send rates offered in the editor, matching common mouse report rates; 0 forwards every report as it arrives. */
+    public static final int[] RATES = {0, 125, 250, 500, 1000};
 
     private AimOptions() {}
 
